@@ -1,0 +1,85 @@
+name: Bug report
+description: Report a sanitized problem with the hooks, tests, or docs.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not paste tokens, credentials, raw agent transcripts with private data, private repository names, or internal absolute paths. Replace your devlog root with a placeholder such as `C:/path/to/devlog`.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the observable problem without private data.
+      placeholder: The Stop hook keeps blocking even after I append to today's journal because...
+    validations:
+      required: true
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: Symptom class
+      options:
+        - Stop hook never blocks (enforcement silently disabled)
+        - Stop hook blocks repeatedly / loops
+        - Stop hook blocks even though the journal was updated
+        - Nudge fires too often or at the wrong time
+        - Nudge never fires
+        - SessionStart context missing or garbled (mojibake)
+        - Marker files not created / not pruned
+        - Hook broke or slowed down the session (fail-open violated)
+        - CLAUDE_DEVLOG_DIR / CLAUDE_DEVLOG_LANG not honored
+        - test-hooks.ps1 failure
+        - Documentation error or unclear guidance
+        - Other sanitized symptom
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Shell and versions. No machine names or private paths.
+      placeholder: |
+        PowerShell: pwsh 7.4 (or Windows PowerShell 5.1)
+        Claude Code version: 2.x.y
+        OS: Windows 11
+        CLAUDE_DEVLOG_LANG: ja
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction (pipe test preferred)
+      description: |
+        The fastest reproduction is a pipe test with synthetic stdin, for example:
+        `'{"session_id":"t"}' | pwsh -NoProfile -File hooks/devlog-stop.ps1`
+        with CLAUDE_DEVLOG_DIR pointing at a throwaway directory.
+      placeholder: |
+        1. Set CLAUDE_DEVLOG_DIR to a temp directory
+        2. Write a marker file with epoch N
+        3. Pipe {"session_id":"t"} into hooks/devlog-stop.ps1
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The hook should stay silent (exit 0, no output).
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: The hook emitted a block decision with a garbled reason.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed tokens, credentials, customer data, private repository names, and internal absolute paths.
+          required: true
