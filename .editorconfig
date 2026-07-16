@@ -1,0 +1,21 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{md,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# The three hook scripts carry non-ASCII (Japanese) message text and must be
+# parseable by Windows PowerShell 5.1, which treats BOM-less files as ANSI.
+# They are therefore stored as UTF-8 WITH BOM, deliberately.
+[hooks/*.ps1]
+charset = utf-8-bom

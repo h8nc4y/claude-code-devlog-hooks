@@ -1,0 +1,44 @@
+{
+  "env": {
+    "CLAUDE_DEVLOG_DIR": "C:/path/to/your/devlog",
+    "CLAUDE_DEVLOG_LANG": "ja"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File C:/path/to/claude-code-devlog-hooks/hooks/devlog-session-start.ps1",
+            "timeout": 15,
+            "statusMessage": "開発ログ運用を確認中…"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File C:/path/to/claude-code-devlog-hooks/hooks/devlog-prompt-nudge.ps1",
+            "timeout": 15,
+            "statusMessage": "開発ログの追記時機を確認中…"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File C:/path/to/claude-code-devlog-hooks/hooks/devlog-stop.ps1",
+            "timeout": 15,
+            "statusMessage": "開発ログ記入を確認中…"
+          }
+        ]
+      }
+    ]
+  }
+}
