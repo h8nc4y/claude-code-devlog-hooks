@@ -25,9 +25,12 @@ verify.
 
 Every change to `hooks/*.ps1` must preserve:
 
-1. **Fail-open**: any error or unjudgeable state allows and stays silent;
-   every path ends in `exit 0` (the structured block JSON is emitted
-   before a normal exit).
+1. **Fail-open AND fail-silent**: any error or unjudgeable state allows,
+   with nothing on stdout or stderr; every path ends in `exit 0` (the
+   structured block JSON is emitted before a normal exit). Hooks set
+   `$ErrorActionPreference = 'Stop'` so cmdlet errors become catchable
+   instead of leaking to stderr — keep it, and keep degraded states
+   disclosed in the injected context rather than invisible.
 2. **Raw UTF-8 stdout** via `Write-Utf8Stdout`; never pipe objects or
    strings directly to stdout.
 3. **No `Set-StrictMode` in hooks** — the logic relies on absent JSON

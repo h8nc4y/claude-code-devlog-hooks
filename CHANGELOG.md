@@ -26,14 +26,21 @@ The format loosely follows Keep a Changelog conventions.
   conventional layout.
 - Japanese (default) and English message sets, switchable via
   `CLAUDE_DEVLOG_LANG` or a script-top default.
-- Fail-open design throughout (any error or unjudgeable state allows and
-  stays silent), raw UTF-8 byte output (mojibake prevention), UTF-8 BOM on
-  hook sources for Windows PowerShell 5.1 compatibility.
-- Pipe-test suite (`scripts/test-hooks.ps1`, 23 cases) asserting exit
+- Fail-open AND fail-silent design throughout (any error or unjudgeable
+  state allows with nothing on stderr; cmdlet errors promoted to
+  terminating via `$ErrorActionPreference = 'Stop'`), raw UTF-8 byte
+  output (mojibake prevention), UTF-8 BOM on hook sources for Windows
+  PowerShell 5.1 compatibility.
+- Degraded-enforcement disclosure: when the session marker cannot be
+  written (for example an unwritable devlog root), SessionStart still
+  injects the routine plus a visible ⚠ notice that Stop enforcement and
+  nudges are off for the session.
+- Pipe-test suite (`scripts/test-hooks.ps1`, 27 cases) asserting exit
   codes, raw output bytes (strict UTF-8, JSON shape, field values,
   language switching), and side effects (marker creation, pruning,
-  sanitized filenames); runs under both PowerShell 7 and Windows
-  PowerShell 5.1 in CI.
+  sanitized filenames), including fail-silent regression cases for
+  unwritable roots and unreadable markers; runs under both PowerShell 7
+  and Windows PowerShell 5.1 in CI.
 - Journaling discipline skill (`SKILL.md`, English canonical) and Japanese
   full version (`docs/SKILL.ja.md`).
 - Hook engineering notes (`docs/hook-engineering.md`): enforce-once

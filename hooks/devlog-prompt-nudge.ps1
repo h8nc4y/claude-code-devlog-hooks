@@ -11,14 +11,16 @@
 # hookSpecificOutput.additionalContext (UserPromptSubmit never blocks here).
 #
 # Design rules shared by all three hooks (rationale: docs/hook-engineering.md):
-# - Fail-open: any error means "allow and stay silent" (always exit 0).
+# - Fail-open AND fail-silent: any error means "allow, say nothing on stderr"
+#   (always exit 0; cmdlet errors promoted to terminating below).
 # - Output is written as raw UTF-8 bytes (prevents mojibake).
 # - No Set-StrictMode: absent JSON properties must evaluate to $null.
 # - Saved as UTF-8 with BOM for Windows PowerShell 5.1 compatibility.
 
 # --- Configuration -----------------------------------------------------------
-# Devlog root resolution order: CLAUDE_DEVLOG_DIR, then $DefaultDevlogDir.
-$DefaultDevlogDir = Join-Path $HOME 'claude-devlog'
+# Devlog root resolution order: CLAUDE_DEVLOG_DIR, then $DefaultDevlogDir
+# (leave '' to use <home>/claude-devlog).
+$DefaultDevlogDir = ''
 
 # Message language: 'ja' or 'en'. Override with CLAUDE_DEVLOG_LANG.
 $DefaultLang = 'ja'
@@ -26,6 +28,11 @@ $DefaultLang = 'ja'
 # Both gates use this threshold. Lower = chattier, higher = quieter.
 $ThresholdSec = 1200   # 20 minutes
 # -----------------------------------------------------------------------------
+
+# Cmdlet errors are NON-terminating by default: they bypass try/catch, print
+# to stderr, and continue — which breaks the fail-silent contract. Promote
+# them to terminating so the catch blocks below decide quietly instead.
+$ErrorActionPreference = 'Stop'
 
 function Write-Utf8Stdout([string]$s) {
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($s)
@@ -37,6 +44,7 @@ function Write-Utf8Stdout([string]$s) {
 function Resolve-DevlogRoot {
     $dir = [Environment]::GetEnvironmentVariable('CLAUDE_DEVLOG_DIR')
     if ([string]::IsNullOrWhiteSpace($dir)) { $dir = $DefaultDevlogDir }
+    if ([string]::IsNullOrWhiteSpace($dir)) { $dir = Join-Path $HOME 'claude-devlog' }
     return $dir
 }
 

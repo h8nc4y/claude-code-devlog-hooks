@@ -4,8 +4,9 @@
 # UserPromptSubmit hook time its nudges.
 #
 # Design rules shared by all three hooks (rationale: docs/hook-engineering.md):
-# - Fail-open: any error means "allow and stay silent" (try/catch around
-#   everything, always exit 0). A journaling aid must never break a session.
+# - Fail-open AND fail-silent: any error means "allow, say nothing on stderr"
+#   (try/catch around everything, cmdlet errors promoted to terminating,
+#   always exit 0). A journaling aid must never break or clutter a session.
 # - Output is written as raw UTF-8 bytes so non-ASCII text survives regardless
 #   of the console code page (prevents mojibake).
 # - No Set-StrictMode: the logic relies on absent JSON properties evaluating
@@ -17,20 +18,25 @@
 # --- Configuration -----------------------------------------------------------
 # One variable drives everything: the devlog root directory. Resolution order:
 #   1. CLAUDE_DEVLOG_DIR environment variable (recommended)
-#   2. $DefaultDevlogDir below
+#   2. $DefaultDevlogDir below (leave '' to use <home>/claude-devlog)
 # Conventional layout under the root (see README.md):
 #   daily/YYYY-MM-DD.md  - today's journal; written by the agent, never by hooks
 #   topics/<slug>.md     - distilled evergreen notes; never touched by hooks
 #   .devlog-markers/     - session-start markers written by this hook
-$DefaultDevlogDir = Join-Path $HOME 'claude-devlog'
+$DefaultDevlogDir = ''
 
 # Message language: 'ja' or 'en'. Override with CLAUDE_DEVLOG_LANG.
 $DefaultLang = 'ja'
 
 # Marker files older than this are deleted on each session start. SessionStart
-# fires on startup/resume/compact, so markers accumulate without cleanup.
+# fires on startup/resume/clear/compact, so markers accumulate without cleanup.
 $MarkerRetentionDays = 7
 # -----------------------------------------------------------------------------
+
+# Cmdlet errors are NON-terminating by default: they bypass try/catch, print
+# to stderr, and continue — which breaks the fail-silent contract. Promote
+# them to terminating so the catch blocks below decide quietly instead.
+$ErrorActionPreference = 'Stop'
 
 function Write-Utf8Stdout([string]$s) {
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($s)
@@ -42,6 +48,7 @@ function Write-Utf8Stdout([string]$s) {
 function Resolve-DevlogRoot {
     $dir = [Environment]::GetEnvironmentVariable('CLAUDE_DEVLOG_DIR')
     if ([string]::IsNullOrWhiteSpace($dir)) { $dir = $DefaultDevlogDir }
+    if ([string]::IsNullOrWhiteSpace($dir)) { $dir = Join-Path $HOME 'claude-devlog' }
     return $dir
 }
 
@@ -58,20 +65,32 @@ try {
 
     # SessionStart still runs with a placeholder id when the input is unusable:
     # injecting the routine is useful even if the marker cannot be per-session.
+    # Id-less sessions share the 'unknown.start' marker; that is harmless
+    # because the Stop and nudge hooks exit early without a session_id and
+    # never read it — the shared marker just ages out via pruning.
     $sid = if ($data -and $data.session_id) { [string]$data.session_id } else { 'unknown' }
 
     $devlogDir = Resolve-DevlogRoot
     $lang = Resolve-MessageLang
-
     $markerDir = Join-Path $devlogDir '.devlog-markers'
-    if (-not (Test-Path -LiteralPath $markerDir)) {
-        # -Force creates missing parents, including the devlog root on first run.
-        New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
-    }
 
     $safeSid = ($sid -replace '[^A-Za-z0-9_.-]', '_')
     $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    Set-Content -LiteralPath (Join-Path $markerDir "$safeSid.start") -Value "$now" -NoNewline -Encoding ascii
+
+    # Marker writes get their own catch: on an unwritable devlog root the
+    # routine below is still worth injecting, but the user must be told that
+    # the enforcement layer is off — a silently disarmed Stop hook looks
+    # exactly like a working one.
+    $enforcementOn = $true
+    try {
+        if (-not (Test-Path -LiteralPath $markerDir)) {
+            # -Force creates missing parents, including the devlog root on first run.
+            New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
+        }
+        Set-Content -LiteralPath (Join-Path $markerDir "$safeSid.start") -Value "$now" -NoNewline -Encoding ascii
+    } catch {
+        $enforcementOn = $false
+    }
 
     # Prune old markers so the directory does not grow forever.
     try {
@@ -103,6 +122,14 @@ try {
 - 形式: 「## セッション(HH:MM) 〔1行要約〕 / **やったこと** / **学び・詰まり・解決** / **次回** / 関連 [[topic]]・#tag」。既存セッション見出しへの箇条書き追記でも可。
 - 再発・汎用の知見は topics/<slug>.md に蒸留し [[wikilink]] で繋ぐ。secret / token / 実データは書かない。
 "@
+    }
+
+    if (-not $enforcementOn) {
+        if ($lang -eq 'en') {
+            $ctx += "`n" + "⚠ Could not write the session marker under $markerDir — the Stop-hook enforcement and staleness nudges are OFF for this session. Check that CLAUDE_DEVLOG_DIR points to a writable directory."
+        } else {
+            $ctx += "`n" + "⚠ セッションマーカーを $markerDir に書き込めなかったため、このセッションでは Stop hook の強制と催促は無効です。CLAUDE_DEVLOG_DIR が書き込み可能なディレクトリを指しているか確認してください。"
+        }
     }
 
     $out = @{

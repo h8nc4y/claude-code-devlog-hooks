@@ -52,8 +52,27 @@ session. Wrap the entire body in `try { } catch { }` and end with `exit 0`;
 on any error or unjudgeable state, decide in the direction that does NOT
 obstruct the user.
 
-The direct consequence: **fail-open hides bugs.** A broken hook exits 0 and
-is indistinguishable from a hook that decided to allow. A real incident
+**Non-terminating errors are the hole in naive fail-open.** PowerShell
+cmdlet errors are non-terminating by default: they do NOT enter `catch`,
+they print to stderr, and execution continues. A hook wrapped entirely in
+try/catch can therefore still spray stderr and half-execute on a write
+failure. Set `$ErrorActionPreference = 'Stop'` inside the hook so every
+cmdlet error becomes a catchable exception — then fail-open is also
+fail-SILENT. (Adversarial review of this repository caught exactly this
+before v0.1.0: an unwritable devlog root made SessionStart exit 0 while
+leaking a `Set-Content` error to stderr, with the Stop layer silently
+disarmed. The regression cases in `test-hooks.ps1` now pin the silent
+behavior.)
+
+**Disclose degraded enforcement.** When SessionStart cannot write its
+marker, the Stop layer is off for the whole session — invisible unless
+disclosed, because a silently disarmed Stop hook looks exactly like a
+working one on a session where the journal was updated. The hook appends a
+⚠ line to the injected context naming the unwritable directory, instead of
+degrading invisibly.
+
+The broader consequence: **fail-open hides bugs.** A broken hook exits 0
+and is indistinguishable from a hook that decided to allow. A real incident
 behind this repository: a PowerShell cast-precedence bug threw on every
 run, the catch swallowed it, and the hook simply "never blocked" — no error
 appeared anywhere. Therefore:
@@ -105,7 +124,15 @@ BOM-less and construct non-ASCII needles with `[regex]::Unescape`.
   that lacks the field). Under strict mode that access throws, the fail-open
   catch eats it, and the hook is silently disabled — strictness makes the
   hook LESS correct. Test harnesses and validation scripts, which fail
-  closed, should keep `Set-StrictMode -Version Latest`.
+  closed, should keep `Set-StrictMode -Version Latest`. Note this is a
+  different axis from `$ErrorActionPreference = 'Stop'`, which the hooks DO
+  set: EAP governs how cmdlet errors surface (catchable vs stderr leak),
+  StrictMode governs whether absent variables/properties are errors.
+- **Compare protocol booleans explicitly.** PowerShell treats any non-empty
+  string as truthy, so `if ($data.stop_hook_active)` would treat a
+  defensive string value `"false"` as true and skip enforcement. Use
+  `($data.stop_hook_active -eq $true)` for fields the spec defines as
+  booleans.
 - **PS 5.1 turns redirected native stderr into terminating errors** while
   `$ErrorActionPreference = 'Stop'`. Any harness that shells out (git, a
   child PowerShell) with `2>&1` or `2>$null` must scope the preference down

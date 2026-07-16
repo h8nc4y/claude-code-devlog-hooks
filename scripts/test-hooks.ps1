@@ -445,6 +445,54 @@ Add-Case 'stop-en-language' {
     Assert-Condition ($json.reason.Contains('dev journal')) 'CLAUDE_DEVLOG_LANG=en should switch the block reason to English.'
 }
 
+# --- Fail-silent regression cases ----------------------------------------------
+# Non-terminating cmdlet errors bypass try/catch and leak to stderr unless the
+# hooks promote them to terminating; these cases pin the fail-SILENT contract
+# on write/read failures (found by adversarial review before v0.1.0).
+
+Add-Case 'session-start-unwritable-root-warns-silently' {
+    # A devlog root whose parent is a regular FILE cannot be created. The hook
+    # must stay fail-silent (exit 0, no stderr), still inject the routine, and
+    # disclose that enforcement is off for the session (warning sign in text).
+    $caseRoot = New-CaseRoot
+    $blocker = Join-Path $caseRoot 'blocker'
+    Set-Content -LiteralPath $blocker -Value 'file in the way' -Encoding ascii
+    $badRoot = Join-Path $blocker 'sub'
+    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":"bad-root"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $badRoot }
+    Assert-Condition ($result.ExitCode -eq 0) "SessionStart should exit 0 on an unwritable root (got $($result.ExitCode))."
+    Assert-Condition ([string]::IsNullOrWhiteSpace($result.Stderr)) "SessionStart should keep stderr silent on an unwritable root (got: $($result.Stderr))."
+    $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
+    Assert-Condition ($json.hookSpecificOutput.hookEventName -eq 'SessionStart') 'Context should still be injected on an unwritable root.'
+    $warningSign = [string][char]0x26A0   # the warning sign prefixes the disclosure line
+    Assert-Condition ($json.hookSpecificOutput.additionalContext.Contains($warningSign)) 'Context should disclose that enforcement is off.'
+}
+
+Add-Case 'stop-allows-on-directory-marker' {
+    # A directory occupying the marker path makes the marker read fail; the
+    # hook must allow with nothing on stdout OR stderr.
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    New-Item -ItemType Directory -Path (Join-Path (Join-Path $caseRoot '.devlog-markers') 's1.start') | Out-Null
+    $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"s1"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Allowed -Result $result -Label 'Stop with a directory where the marker should be'
+}
+
+Add-Case 'nudge-silent-on-directory-marker' {
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    New-Item -ItemType Directory -Path (Join-Path (Join-Path $caseRoot '.devlog-markers') 's1.start') | Out-Null
+    $result = Invoke-Hook -HookPath $hookNudge -StdinText '{"session_id":"s1"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Allowed -Result $result -Label 'Nudge with a directory where the marker should be'
+}
+
+Add-Case 'stop-blocks-when-stop-hook-active-is-string-false' {
+    # The spec sends stop_hook_active as a boolean. A defensive string value
+    # "false" must not be treated as truthy (which would skip enforcement).
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId 's1' -Content "$((Get-NowEpoch) - 100)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"s1","stop_hook_active":"false"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
+    Assert-Condition ($json.decision -eq 'block') 'A non-boolean stop_hook_active value should not suppress the block.'
+}
+
 # --- Runner --------------------------------------------------------------------
 
 $failures = New-Object System.Collections.Generic.List[string]

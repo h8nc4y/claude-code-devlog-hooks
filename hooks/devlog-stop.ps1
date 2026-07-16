@@ -8,18 +8,25 @@
 # journal is written". stop_hook_active guards against infinite block loops.
 #
 # Design rules shared by all three hooks (rationale: docs/hook-engineering.md):
-# - Fail-open: any error or unjudgeable state means "allow" (always exit 0).
+# - Fail-open AND fail-silent: any error or unjudgeable state means "allow,
+#   say nothing on stderr" (always exit 0; cmdlet errors promoted below).
 # - Output is written as raw UTF-8 bytes (prevents mojibake).
 # - No Set-StrictMode: absent JSON properties must evaluate to $null.
 # - Saved as UTF-8 with BOM for Windows PowerShell 5.1 compatibility.
 
 # --- Configuration -----------------------------------------------------------
-# Devlog root resolution order: CLAUDE_DEVLOG_DIR, then $DefaultDevlogDir.
-$DefaultDevlogDir = Join-Path $HOME 'claude-devlog'
+# Devlog root resolution order: CLAUDE_DEVLOG_DIR, then $DefaultDevlogDir
+# (leave '' to use <home>/claude-devlog).
+$DefaultDevlogDir = ''
 
 # Message language: 'ja' or 'en'. Override with CLAUDE_DEVLOG_LANG.
 $DefaultLang = 'ja'
 # -----------------------------------------------------------------------------
+
+# Cmdlet errors are NON-terminating by default: they bypass try/catch, print
+# to stderr, and continue — which breaks the fail-silent contract. Promote
+# them to terminating so the catch blocks below decide quietly instead.
+$ErrorActionPreference = 'Stop'
 
 function Write-Utf8Stdout([string]$s) {
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($s)
@@ -31,6 +38,7 @@ function Write-Utf8Stdout([string]$s) {
 function Resolve-DevlogRoot {
     $dir = [Environment]::GetEnvironmentVariable('CLAUDE_DEVLOG_DIR')
     if ([string]::IsNullOrWhiteSpace($dir)) { $dir = $DefaultDevlogDir }
+    if ([string]::IsNullOrWhiteSpace($dir)) { $dir = Join-Path $HOME 'claude-devlog' }
     return $dir
 }
 
@@ -46,7 +54,9 @@ try {
     if ($raw) { try { $data = $raw | ConvertFrom-Json } catch { $data = $null } }
 
     # Already continuing because a Stop hook blocked: allow, to avoid loops.
-    if ($data -and $data.stop_hook_active) { exit 0 }
+    # Explicit -eq $true: the spec sends a boolean, and a defensive string
+    # value like "false" must not count as truthy here.
+    if ($data -and ($data.stop_hook_active -eq $true)) { exit 0 }
 
     $sid = if ($data -and $data.session_id) { [string]$data.session_id } else { $null }
     if (-not $sid) { exit 0 }   # unknown session: allow

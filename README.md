@@ -116,7 +116,7 @@ are about to run them on every session event.
      script.
    - `Stop` and `UserPromptSubmit` take no matcher (they always fire; the
      scripts do their own filtering). Registering `SessionStart` without a
-     matcher fires it on startup, resume, and compact — intended here.
+     matcher fires it on startup, resume, clear, and compact — intended here.
    - On Windows without PowerShell 7, replace `pwsh` with `powershell`.
    - Merge, do not overwrite: keep your existing settings and validate the
      JSON afterwards.
@@ -198,7 +198,7 @@ cast precedence, no StrictMode in hooks) — are documented with rationale in
   exit codes) checked against the official hooks reference at
   `code.claude.com/docs/en/hooks` on 2026-07-16.
 - Behavior verified by the pipe-test suite (`scripts/test-hooks.ps1`,
-  23 cases) under PowerShell 7.6 and Windows PowerShell 5.1, locally and in
+  27 cases) under PowerShell 7.6 and Windows PowerShell 5.1, locally and in
   CI on `windows-latest`.
 - The pre-parameterization ancestors of these hooks (same logic, hardcoded
   paths) have run in daily Claude Code use on Windows since 2026-06-15,
@@ -212,14 +212,18 @@ cast precedence, no StrictMode in hooks) — are documented with rationale in
 - **Midnight rollover**: "today's journal" is recomputed at judgment time;
   a session crossing midnight is judged against the new day's file and may
   be blocked once more after midnight.
-- **Resume/compact re-arm**: SessionStart fires on resume and compaction
-  and refreshes the marker, so a compacted session can be blocked once
-  again — read as "a context window's worth of work deserves an entry".
+- **Resume/clear/compact re-arm**: SessionStart fires on resume, `/clear`,
+  and compaction, refreshing the marker — so those events re-arm the
+  once-per-session block. Read as "a context window's worth of work
+  deserves an entry".
 - **Config timing**: hooks registered mid-session may not fire until the
   next session.
 - **The Stop layer relies on the marker**: without it (mid-session install,
   pruned marker) the hooks fail open — no block, no nudge — rather than
   guess.
+- **Unwritable devlog root**: SessionStart still injects the routine but
+  appends a visible ⚠ notice that enforcement is off for the session (the
+  marker could not be written); nothing is leaked to stderr.
 
 Details and rationale: [docs/hook-engineering.md](docs/hook-engineering.md).
 
