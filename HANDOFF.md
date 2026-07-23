@@ -42,10 +42,11 @@ dev-journal hooks for macOS/Linux with PowerShell-equivalent behavior.
   `git diff --cached --check`: passed.
 - Global staged Gitleaks: passed. Global Semgrep: skipped automatically
   because the change contains no supported Python/JavaScript file.
-- Ubuntu CI: pending.
+- PR #4 CI: Windows repository validation and Ubuntu Bash jobs passed.
+  Ubuntu executed all 33 cases (30 shared + 3 special-path) and `bash -n`.
 - Actual macOS/Bash 3.2 live Claude Code use: unverified by design.
 
 ## Next steps
 
-Run every local gate, inspect the focused diff, update this verification
-section, then commit/push/PR/CI/merge and confirm issue #2 closure.
+Merge PR #4 after the latest HEAD checks pass, confirm issue #2 closure, sync
+local `main`, and remove the merged feature branch.
