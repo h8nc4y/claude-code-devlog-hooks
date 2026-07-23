@@ -66,12 +66,21 @@ Claude Code plugin while keeping manual registration as a supported fallback.
   and missing/failed-converter cases. The P3 deterministic-test gaps for the
   manifest hook path and competing `skills/` directory are also covered.
   The full local review-fix matrix is green; final independent re-review is
-  pending on the frozen staged diff.
+  complete at P1/P2/P3 = 0.
+- Commit `78dde90` was pushed and PR #5 opened. Its first CI run
+  (`30019138135`) exposed two test-fixture portability defects: Ubuntu's
+  ambient `/usr/bin/pwsh` invalidated fallback selection, while Git for
+  Windows represented synthetic hook arguments in a different MSYS path
+  namespace. The fixture now uses an isolated shim-only `PATH`, an explicit
+  stdin-capture executable, and host-canonical path comparison. The 13 launcher
+  cases pass again on local Git Bash and WSL; independent review and remote CI
+  rerun for this test-only fix are pending.
 - Live Claude plugin registration/install, marketplace publication, and actual
   macOS/Bash 3.2: unverified by scope.
 
 ## Next steps
 
-Freeze the staged diff and request independent read-only re-review. If
-P1/P2/P3 are all zero, commit, push, open the issue #3 PR, and verify CI. Stop
-before merge and report the exact handoff to the root task.
+Freeze and independently review the CI fixture fix, then commit and push it to
+PR #5. Verify both remote jobs, merge when green, synchronize `main` with
+`origin/main`, clean the task branch, rerun the final matrix, and compact this
+handoff plus the central development log.

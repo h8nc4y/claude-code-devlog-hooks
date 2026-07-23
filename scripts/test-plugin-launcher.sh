@@ -15,6 +15,12 @@ REAL_BASH=$(command -v bash) || {
     printf '%s\n' 'FAIL: bash is required to test the plugin launcher.' >&2
     exit 1
 }
+REAL_CAT=$(command -v cat) || {
+    printf '%s\n' 'FAIL: cat is required to capture synthetic runtime stdin.' >&2
+    exit 1
+}
+HOST_PLATFORM=$(uname -s 2>/dev/null) || exit 1
+REAL_CYGPATH=$(command -v cygpath 2>/dev/null || :)
 ORIGINAL_PATH=$PATH
 
 FAILURES=0
@@ -49,6 +55,46 @@ assert_file_line() {
     fi
 }
 
+canonicalize_host_path() {
+    local value=$1
+    case $HOST_PLATFORM in
+        MINGW* | MSYS* | CYGWIN*)
+            [[ -n $REAL_CYGPATH ]] || return 1
+            "$REAL_CYGPATH" -u -- "$value" 2>/dev/null
+            ;;
+        *)
+            printf '%s\n' "$value"
+            ;;
+    esac
+}
+
+assert_hook_argument() {
+    local expected=$1
+    local path=$2
+    local label=$3
+    local line=
+    local actual=
+    local expected_canonical
+    local actual_canonical
+
+    if [[ ! -f $path ]]; then
+        fail "$label (argument trace is missing)"
+        return
+    fi
+    while IFS= read -r line || [[ -n $line ]]; do
+        actual=$line
+    done < "$path"
+    expected_canonical=$(canonicalize_host_path "$expected") || {
+        fail "$label (expected path could not be normalized)"
+        return
+    }
+    actual_canonical=$(canonicalize_host_path "$actual") || {
+        fail "$label (actual path could not be normalized)"
+        return
+    }
+    assert_eq "$expected_canonical" "$actual_canonical" "$label"
+}
+
 make_runtime_shim() {
     local path=$1
     cat > "$path" <<'SHIM'
@@ -58,7 +104,7 @@ printf '%s\n' "$runtime_name" >> "$DEVLOG_TEST_TRACE"
 printf '%s\n' "$@" > "$DEVLOG_TEST_ARGS"
 printf '%s\n' "${CLAUDE_DEVLOG_DIR-}" > "$DEVLOG_TEST_DIR"
 printf '%s\n' "${CLAUDE_DEVLOG_LANG-}" > "$DEVLOG_TEST_LANG"
-cat > "$DEVLOG_TEST_STDIN"
+"$DEVLOG_TEST_CAT" > "$DEVLOG_TEST_STDIN"
 exit 0
 SHIM
     chmod +x "$path"
@@ -135,6 +181,7 @@ run_launcher() {
         export DEVLOG_TEST_DIR=$DIR_FILE
         export DEVLOG_TEST_LANG=$LANG_FILE
         export DEVLOG_TEST_STDIN=$STDIN_FILE
+        export DEVLOG_TEST_CAT=$REAL_CAT
         export CLAUDE_PLUGIN_OPTION_DEVLOG_DIR=$plugin_dir
         export CLAUDE_DEVLOG_DIR=$legacy_dir
         export CLAUDE_PLUGIN_OPTION_DEVLOG_LANG=$plugin_lang
@@ -159,7 +206,7 @@ run_success_case() {
     make_runtime_shim "$SHIM_ROOT/$runtime"
     set +e
     run_launcher "$platform" "$event" "$payload" "$plugin_dir" "$legacy_dir" \
-        "$plugin_lang" "$legacy_lang" "$SHIM_ROOT:/usr/bin:/bin"
+        "$plugin_lang" "$legacy_lang" "$SHIM_ROOT"
     local status=$?
     set -e
 
@@ -170,7 +217,7 @@ run_success_case() {
         invocation_count=$(wc -l < "$TRACE_FILE" | tr -d ' ')
     fi
     assert_eq 1 "$invocation_count" "$platform/$event must execute one runtime only"
-    assert_file_line "$PLUGIN_ROOT/hooks/$hook_file" "$ARGS_FILE" "$platform/$event should select $hook_file"
+    assert_hook_argument "$PLUGIN_ROOT/hooks/$hook_file" "$ARGS_FILE" "$platform/$event should select $hook_file"
     assert_eq "$payload" "$(cat "$STDIN_FILE")" "$platform/$event must forward stdin unchanged"
     assert_eq '' "$(cat "$STDOUT_FILE")" "$platform/$event launcher must add no stdout"
     assert_eq '' "$(cat "$STDERR_FILE")" "$platform/$event launcher must add no stderr"
@@ -207,7 +254,7 @@ make_runtime_shim "$SHIM_ROOT/powershell.exe"
 make_runtime_shim "$SHIM_ROOT/bash"
 set +e
 run_launcher MINGW64_NT-10.0 session-start '{"session_id":"win-pwsh"}' \
-    '/tmp/plugin' '/tmp/legacy' ja en "$SHIM_ROOT:/usr/bin:/bin"
+    '/tmp/plugin' '/tmp/legacy' ja en "$SHIM_ROOT"
 status=$?
 set -e
 assert_eq 0 "$status" 'Windows pwsh selection should succeed'
@@ -220,7 +267,7 @@ make_runtime_shim "$SHIM_ROOT/powershell.exe"
 make_runtime_shim "$SHIM_ROOT/bash"
 set +e
 run_launcher MSYS_NT-10.0 stop '{"session_id":"win-ps51"}' \
-    '/tmp/plugin' '/tmp/legacy' ja en "$SHIM_ROOT:/usr/bin:/bin"
+    '/tmp/plugin' '/tmp/legacy' ja en "$SHIM_ROOT"
 status=$?
 set -e
 assert_eq 0 "$status" 'Windows PowerShell 5.1 selection should succeed'
@@ -232,7 +279,7 @@ make_cygpath_shim "$SHIM_ROOT/cygpath"
 make_runtime_shim "$SHIM_ROOT/bash"
 set +e
 run_launcher CYGWIN_NT-10.0 prompt-nudge '{"session_id":"win-bash"}' \
-    '/tmp/plugin' '/tmp/legacy' ja en "$SHIM_ROOT:/usr/bin:/bin"
+    '/tmp/plugin' '/tmp/legacy' ja en "$SHIM_ROOT"
 status=$?
 set -e
 assert_eq 0 "$status" 'Windows Bash fallback should succeed'
@@ -314,7 +361,7 @@ protected_value='SECRET_FIXTURE_MUST_NOT_APPEAR'
 raw_payload='RAW_PRIVATE_LOG_MUST_NOT_APPEAR'
 set +e
 run_launcher Plan9 session-start "$raw_payload" "$protected_value" \
-    "$protected_value" "$protected_value" "$protected_value" "$SHIM_ROOT:/usr/bin:/bin"
+    "$protected_value" "$protected_value" "$protected_value" "$SHIM_ROOT"
 status=$?
 set -e
 assert_eq 64 "$status" 'Unknown platform must exit 64'
@@ -332,7 +379,7 @@ new_case
 make_runtime_shim "$SHIM_ROOT/bash"
 set +e
 run_launcher Linux unknown-event "$raw_payload" "$protected_value" \
-    "$protected_value" "$protected_value" "$protected_value" "$SHIM_ROOT:/usr/bin:/bin"
+    "$protected_value" "$protected_value" "$protected_value" "$SHIM_ROOT"
 status=$?
 set -e
 assert_eq 64 "$status" 'Unknown event must exit 64'
@@ -351,7 +398,7 @@ make_runtime_shim "$SHIM_ROOT/bash"
 rm -f -- "$PLUGIN_ROOT/hooks/devlog-stop.sh"
 set +e
 run_launcher Linux stop "$raw_payload" "$protected_value" \
-    "$protected_value" "$protected_value" "$protected_value" "$SHIM_ROOT:/usr/bin:/bin"
+    "$protected_value" "$protected_value" "$protected_value" "$SHIM_ROOT"
 status=$?
 set -e
 assert_eq 66 "$status" 'Missing bundled hook must exit 66'
