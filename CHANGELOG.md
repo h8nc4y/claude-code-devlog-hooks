@@ -44,7 +44,8 @@ The format loosely follows Keep a Changelog conventions.
   launcher checks. The strict Claude CLI validator remains a local release
   gate and passed on Claude Code 2.1.207.
 - Isolated launcher runtime fixtures from ambient CI executables and
-  canonicalized Git Bash path representations before exact target comparison.
+  canonicalized Git Bash virtual-temp and 8.3 aliases into long native paths
+  before exact full-target comparison.
 - Pinned both `actions/checkout` uses to the verified v5 commit after Semgrep
   flagged the mutable major-version tag.
 - Expanded `scripts/test-hooks.ps1` from 27 to 30 cross-runtime cases:
