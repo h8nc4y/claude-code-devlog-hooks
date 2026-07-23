@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "claude-code-devlog-hooks",
+  "displayName": "Claude Code Devlog Hooks",
+  "version": "0.2.0",
+  "description": "Three local hooks and a journaling skill that keep a daily development log little and often.",
+  "author": {
+    "name": "h8nc4y",
+    "url": "https://github.com/h8nc4y"
+  },
+  "homepage": "https://github.com/h8nc4y/claude-code-devlog-hooks#readme",
+  "repository": "https://github.com/h8nc4y/claude-code-devlog-hooks",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "hooks",
+    "devlog",
+    "journaling"
+  ],
+  "hooks": "./hooks/hooks.json",
+  "userConfig": {
+    "devlog_dir": {
+      "type": "directory",
+      "title": "Devlog directory",
+      "description": "Root directory that contains daily, topics, and .devlog-markers."
+    },
+    "devlog_lang": {
+      "type": "string",
+      "title": "Message language",
+      "description": "Hook message language: ja or en."
+    }
+  }
+}

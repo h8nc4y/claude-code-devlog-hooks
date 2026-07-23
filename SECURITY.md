@@ -12,6 +12,12 @@ What the hooks do — and everything they do:
   `UserPromptSubmit`, and `Stop` events (the Stop hook runs at the end of
   every turn). No scheduled or background execution.
 - **Network**: none. The hooks make no network calls of any kind.
+- **Plugin launcher**: reads only fixed event arguments plus the official
+  `CLAUDE_PLUGIN_OPTION_DEVLOG_DIR` / `CLAUDE_PLUGIN_OPTION_DEVLOG_LANG`
+  environment exports, maps non-empty values to the existing hook variables,
+  and replaces itself with exactly one checked-in PowerShell or Bash hook.
+  It does not interpolate configuration into command text, dump the
+  environment, or print hook stdin.
 - **Filesystem reads**: the hook source/helper, stdin JSON provided by Claude
   Code, session marker files, and the mtime of today's journal file. Runtime
   state stays under the configured devlog root (`CLAUDE_DEVLOG_DIR`).

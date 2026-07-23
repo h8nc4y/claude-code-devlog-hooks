@@ -1,0 +1,44 @@
+{
+  "description": "Keep a daily development journal little and often.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/devlog-plugin-launcher.sh session-start",
+            "shell": "bash",
+            "timeout": 15,
+            "statusMessage": "開発ログ運用を確認中…"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/devlog-plugin-launcher.sh prompt-nudge",
+            "shell": "bash",
+            "timeout": 15,
+            "statusMessage": "開発ログの追記時機を確認中…"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/devlog-plugin-launcher.sh stop",
+            "shell": "bash",
+            "timeout": 15,
+            "statusMessage": "開発ログ記入を確認中…"
+          }
+        ]
+      }
+    ]
+  }
+}

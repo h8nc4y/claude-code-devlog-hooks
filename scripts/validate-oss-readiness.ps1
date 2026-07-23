@@ -214,6 +214,7 @@ $requiredFiles = @(
     '.github/ISSUE_TEMPLATE/config.yml',
     '.github/pull_request_template.md',
     '.github/workflows/validate.yml',
+    '.claude-plugin/plugin.json',
     'CHANGELOG.md',
     'CODE_OF_CONDUCT.md',
     'CONTRIBUTING.md',
@@ -225,6 +226,10 @@ $requiredFiles = @(
     'docs/hook-engineering.md',
     'docs/posix-hooks-design.md',
     'docs/posix-hooks-test-plan.md',
+    'docs/plugin-requirements.md',
+    'docs/plugin-architecture.md',
+    'docs/plugin-detailed-design.md',
+    'docs/plugin-test-plan.md',
     'examples/hooks-settings.json',
     'examples/hooks-settings.bash.json',
     'examples/journal-entry-template.md',
@@ -233,10 +238,14 @@ $requiredFiles = @(
     'hooks/devlog-session-start.sh',
     'hooks/devlog-prompt-nudge.sh',
     'hooks/devlog-stop.sh',
+    'hooks/hooks.json',
+    'hooks/devlog-plugin-launcher.sh',
     'hooks/devlog-session-start.ps1',
     'hooks/devlog-prompt-nudge.ps1',
     'hooks/devlog-stop.ps1',
     'scripts/scan-private-markers.ps1',
+    'scripts/test-plugin.ps1',
+    'scripts/test-plugin-launcher.sh',
     'scripts/test-hooks.ps1',
     'scripts/test-scan-private-markers.ps1',
     'scripts/validate-oss-readiness.ps1'
@@ -256,6 +265,9 @@ Assert-FileContains -RelativePath 'README.md' -Pattern 'SECURITY\.md' -Descripti
 Assert-FileContains -RelativePath 'README.md' -Pattern 'docs/SKILL\.ja\.md' -Description 'link to the Japanese skill version'
 Assert-FileContains -RelativePath 'README.md' -Pattern 'docs/hook-engineering\.md' -Description 'link to the hook engineering notes'
 Assert-FileContains -RelativePath 'README.md' -Pattern 'CLAUDE_DEVLOG_DIR' -Description 'devlog root configuration variable'
+Assert-FileContains -RelativePath 'README.md' -Pattern 'claude plugin validate \. --strict' -Description 'strict plugin validation command'
+Assert-FileContains -RelativePath 'README.md' -Pattern 'Manual settings fallback' -Description 'manual settings fallback'
+Assert-FileContains -RelativePath 'README.md' -Pattern 'docs/plugin-architecture\.md' -Description 'plugin architecture link'
 Assert-FileContains -RelativePath '.gitignore' -Pattern '\.private-markers\.local' -Description 'ignore local private marker files'
 Assert-FileContains -RelativePath 'CONTRIBUTING.md' -Pattern '(?im)no token|never.*token|secret' -Description 'secret-safe contribution guidance'
 Assert-FileContains -RelativePath 'SECURITY.md' -Pattern '(?im)do not.*public|private|security' -Description 'private vulnerability reporting guidance'
@@ -264,6 +276,8 @@ Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'val
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'scan-private-markers\.ps1' -Description 'private marker scan in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-scan-private-markers\.ps1' -Description 'private marker scan self-test in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-hooks\.ps1' -Description 'hook pipe-test in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-plugin\.ps1' -Description 'plugin package test in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-plugin-launcher\.sh' -Description 'plugin launcher test in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'ubuntu-latest' -Description 'Ubuntu Bash hook job'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'HookShell bash' -Description 'Bash hook pipe-test in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'bash .* -n hooks/\*\.sh' -Description 'Bash syntax check in CI'
@@ -276,6 +290,11 @@ Assert-BashCommonFile -RelativePath 'hooks/devlog-common.sh'
 Assert-BashHookFile -RelativePath 'hooks/devlog-session-start.sh'
 Assert-BashHookFile -RelativePath 'hooks/devlog-prompt-nudge.sh'
 Assert-BashHookFile -RelativePath 'hooks/devlog-stop.sh'
+Assert-FileContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern 'CLAUDE_PLUGIN_OPTION_DEVLOG_DIR' -Description 'official plugin devlog directory export'
+Assert-FileContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern 'CLAUDE_PLUGIN_OPTION_DEVLOG_LANG' -Description 'official plugin language export'
+Assert-FileContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern '(?m)^\s*exec ' -Description 'single-runtime process replacement'
+Assert-FileNotContains -RelativePath 'hooks/hooks.json' -Pattern '\$\{user_config\.' -Description 'shell userConfig interpolation'
+Assert-FileNotContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern '(?m)^\s*eval(?:\s|$)' -Description 'eval of configuration values'
 
 Test-SkillFrontmatter
 Test-ExampleSettings -RelativePath 'examples/hooks-settings.json'

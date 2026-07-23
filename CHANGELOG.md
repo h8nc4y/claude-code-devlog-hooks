@@ -8,6 +8,21 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Added
 
+- Claude Code plugin package:
+  - `.claude-plugin/plugin.json` with optional `devlog_dir` and `devlog_lang`
+    `userConfig`;
+  - `hooks/hooks.json` with one Claude-selected Bash-shell registration each for
+    `SessionStart`, `UserPromptSubmit`, and `Stop`;
+  - a single bounded runtime launcher that bridges official
+    `CLAUDE_PLUGIN_OPTION_*` exports to the existing hook configuration and
+    selects exactly one PowerShell or Bash implementation;
+  - automatic root `SKILL.md` discovery without a duplicate skill tree.
+- Plugin package and launcher test suites covering registration shape,
+  timeout/status messages, config priority, space- and metacharacter-containing
+  paths, explicit Git Bash-to-Windows path conversion, PowerShell 7 / Windows
+  PowerShell / Bash selection, one-runtime-only execution, executable Git
+  index modes, root-skill/hook wiring, and non-sensitive failure output.
+- Class L plugin requirements, architecture, detailed design, and test plan.
 - Dependency-free Bash 3.2+ implementations of all three hooks for
   macOS/Linux:
   - `hooks/devlog-session-start.sh`
@@ -22,6 +37,14 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Made plugin packaging the preferred future distribution path while retaining
+  manual `settings.json` registration as a supported fallback, including
+  PowerShell-only Windows hosts.
+- Extended Windows and Ubuntu CI with deterministic plugin package and
+  launcher checks. The strict Claude CLI validator remains a local release
+  gate and passed on Claude Code 2.1.207.
+- Pinned both `actions/checkout` uses to the verified v5 commit after Semgrep
+  flagged the mutable major-version tag.
 - Expanded `scripts/test-hooks.ps1` from 27 to 30 cross-runtime cases:
   defensive string/nested `stop_hook_active` inputs must not activate the
   top-level boolean loop guard, and malformed nested JSON must fail open.

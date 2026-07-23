@@ -46,6 +46,13 @@ Every change to `hooks/*.ps1` or `hooks/*.sh` must preserve:
    root; no machine-specific absolute paths.
 6. **Enforce-once semantics** for Stop (marker + mtime comparison,
    `stop_hook_active` guard) and the double gate for the nudge.
+7. **One plugin launcher, one selected runtime**: plugin hooks register one
+   `shell: "bash"` launcher per event so Claude Code selects Git Bash rather
+   than an unrelated PATH/WSL executable. Do not register PowerShell and Bash
+   handlers together or interpolate `${user_config.*}` into command text.
+8. **Safe plugin configuration bridge**: read non-empty
+   `CLAUDE_PLUGIN_OPTION_*` values as environment data only. Never use them to
+   choose an executable, script path, or additional command argument.
 
 If a change alters observable behavior, add or adjust a case in
 `scripts/test-hooks.ps1` and run it against both implementations. The shared
@@ -78,15 +85,22 @@ cost and why the standard-tool implementation is insufficient.
 From the repository root:
 
 ```powershell
+claude plugin validate . --strict
+pwsh -NoProfile -File ./scripts/test-plugin.ps1
+bash --noprofile --norc ./scripts/test-plugin-launcher.sh
 pwsh -NoProfile -File ./scripts/validate-oss-readiness.ps1
 pwsh -NoProfile -File ./scripts/test-hooks.ps1
 pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell   # Windows only
 pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash
 pwsh -NoProfile -File ./scripts/test-scan-private-markers.ps1
 pwsh -NoProfile -File ./scripts/scan-private-markers.ps1
-bash --noprofile --norc -n ./hooks/*.sh
+bash --noprofile --norc -n ./hooks/*.sh ./scripts/*.sh
 git diff --check
 ```
+
+The strict Claude CLI validator is a local release check. CI must not install,
+authenticate, or enable Claude Code just to obtain it; CI runs deterministic
+package-shape tests instead.
 
 Windows PowerShell can host the PowerShell scripts too
 (`powershell -NoProfile -ExecutionPolicy Bypass -File ...`). On macOS or
