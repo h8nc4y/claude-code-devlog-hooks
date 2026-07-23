@@ -60,7 +60,7 @@ canonicalize_host_path() {
     case $HOST_PLATFORM in
         MINGW* | MSYS* | CYGWIN*)
             [[ -n $REAL_CYGPATH ]] || return 1
-            "$REAL_CYGPATH" -u -- "$value" 2>/dev/null
+            "$REAL_CYGPATH" -m -- "$value" 2>/dev/null
             ;;
         *)
             printf '%s\n' "$value"
@@ -231,6 +231,21 @@ if [[ ! -x $SOURCE_LAUNCHER ]]; then
     printf '%s\n' 'FAIL: hooks/devlog-plugin-launcher.sh is not executable.'
     exit 1
 fi
+
+# Git for Windows maps /tmp to the runner's native temporary directory. Prove
+# that an implicitly converted native argument still compares equal to the
+# original POSIX fixture path before testing runtime selection.
+case $HOST_PLATFORM in
+    MINGW* | MSYS* | CYGWIN*)
+        path_probe_expected=$TEST_ROOT/'canonical probe ; dollar $() amp & brackets []'
+        path_probe_native=$("$REAL_CYGPATH" -m -- "$path_probe_expected") || exit 1
+        path_probe_argument=$("$REAL_CYGPATH" -u -- "$path_probe_native") || exit 1
+        path_probe_trace=$TEST_ROOT/canonical-path.trace
+        printf '%s\n' "$path_probe_argument" > "$path_probe_trace"
+        assert_hook_argument "$path_probe_expected" "$path_probe_trace" \
+            'Native and POSIX host paths must canonicalize to one target'
+        ;;
+esac
 
 # Three fixed events map to the three fixed Bash entrypoints.
 run_success_case Linux session-start bash devlog-session-start.sh \

@@ -74,7 +74,11 @@ Claude Code plugin while keeping manual registration as a supported fallback.
   namespace. The fixture now uses an isolated shim-only `PATH`, an explicit
   stdin-capture executable, and host-canonical path comparison. The 13 launcher
   cases pass again on local Git Bash and WSL; independent review and remote CI
-  rerun for this test-only fix are pending.
+  rerun for this test-only fix were completed. Ubuntu passed on run
+  `30019850958`; Windows then proved that `/tmp` must be canonicalized into the
+  native Windows namespace rather than back into a POSIX mount alias. The
+  comparison now uses `cygpath -m` for both sides and includes a local native
+  path probe. A second independent review and final remote rerun are pending.
 - Live Claude plugin registration/install, marketplace publication, and actual
   macOS/Bash 3.2: unverified by scope.
 
