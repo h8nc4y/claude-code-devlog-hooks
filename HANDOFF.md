@@ -29,9 +29,9 @@ all synchronized.
 - Launcher: 13/13 passed on Git for Windows Bash and WSL Bash 5.3.9.
 - Existing hook pipe tests: 30/30 passed on PowerShell 7.6.2, Windows
   PowerShell 5.1.26100.8894, and WSL Bash 5.3.9.
-- OSS readiness, Git Bash/WSL syntax, marker scans, Gitleaks repository/history,
-  Semgrep (`p/default`, 43 files, 0 findings), and `git diff --check`: passed on
-  merged `main`.
+- OSS readiness, Git Bash/WSL syntax, marker scans, Gitleaks directory and
+  Git-history scans, Semgrep (`p/default`, 42 tracked files, 0 findings), and
+  `git diff --check`: passed on merged `main`.
 
 ## Decisions and lessons
 
@@ -55,8 +55,9 @@ all synchronized.
 - Real Vault writes
 - macOS hardware and Bash 3.2 runtime
 
-These remain explicit human/environment follow-ups. No authentication, external
-data transmission, marketplace action, or paid operation was performed.
+These remain explicit human/environment follow-ups. No new login or credential
+entry, real Vault or customer-data transmission, marketplace action, or paid
+operation was performed.
 
 ## Next step
 
