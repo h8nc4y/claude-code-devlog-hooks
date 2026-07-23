@@ -77,8 +77,12 @@ Claude Code plugin while keeping manual registration as a supported fallback.
   rerun for this test-only fix were completed. Ubuntu passed on run
   `30019850958`; Windows then proved that `/tmp` must be canonicalized into the
   native Windows namespace rather than back into a POSIX mount alias. The
-  comparison now uses `cygpath -m` for both sides and includes a local native
-  path probe. A second independent review and final remote rerun are pending.
+  comparison now uses `cygpath -m -l` for both sides and includes a local native
+  path probe. Run `30020175433` exposed the final equivalent-path form:
+  `RUNNER~1` versus `runneradmin`. Canonicalization now adds `--long-name`, and
+  the local probe starts from an existing hostile-name file converted through
+  the DOS short form. This is the third and final same-class fix attempt;
+  independent review and one final remote rerun are pending.
 - Live Claude plugin registration/install, marketplace publication, and actual
   macOS/Bash 3.2: unverified by scope.
 

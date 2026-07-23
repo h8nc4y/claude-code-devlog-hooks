@@ -60,7 +60,7 @@ canonicalize_host_path() {
     case $HOST_PLATFORM in
         MINGW* | MSYS* | CYGWIN*)
             [[ -n $REAL_CYGPATH ]] || return 1
-            "$REAL_CYGPATH" -m -- "$value" 2>/dev/null
+            "$REAL_CYGPATH" -m -l -- "$value" 2>/dev/null
             ;;
         *)
             printf '%s\n' "$value"
@@ -238,8 +238,9 @@ fi
 case $HOST_PLATFORM in
     MINGW* | MSYS* | CYGWIN*)
         path_probe_expected=$TEST_ROOT/'canonical probe ; dollar $() amp & brackets []'
-        path_probe_native=$("$REAL_CYGPATH" -m -- "$path_probe_expected") || exit 1
-        path_probe_argument=$("$REAL_CYGPATH" -u -- "$path_probe_native") || exit 1
+        : > "$path_probe_expected"
+        path_probe_short=$("$REAL_CYGPATH" -m -s -- "$path_probe_expected") || exit 1
+        path_probe_argument=$("$REAL_CYGPATH" -u -- "$path_probe_short") || exit 1
         path_probe_trace=$TEST_ROOT/canonical-path.trace
         printf '%s\n' "$path_probe_argument" > "$path_probe_trace"
         assert_hook_argument "$path_probe_expected" "$path_probe_trace" \

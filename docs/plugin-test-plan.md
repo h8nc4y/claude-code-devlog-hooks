@@ -41,9 +41,9 @@ assert:
 The synthetic subprocess `PATH` contains the fixture directory only. Required
 capture utilities are passed by an explicit absolute path, so a CI runner's
 ambient `pwsh`, `powershell`, or `bash` cannot invalidate fallback cases.
-Recorded hook paths are canonicalized into the actual host namespace before
-comparison, covering Git for Windows MSYS argument conversion without weakening
-the fixed-target assertion.
+Recorded hook paths are canonicalized into the actual host's long native path
+before comparison, covering Git for Windows MSYS argument conversion and 8.3
+short-name aliases without weakening the fixed-target assertion.
 
 | Case | Expected selected runtime |
 | --- | --- |
