@@ -13,8 +13,9 @@
 # Usage:
 #   pwsh -NoProfile -File ./scripts/test-hooks.ps1
 #   pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell
+#   pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash
 # -HookShell picks the shell that executes the hooks: 'pwsh', 'powershell',
-# or a full path. Default: pwsh if available, otherwise powershell.
+# 'bash', or a full path. Default: pwsh if available, otherwise powershell.
 
 [CmdletBinding()]
 param(
@@ -34,15 +35,6 @@ if ([string]::IsNullOrWhiteSpace($Path)) {
 }
 $root = (Resolve-Path -LiteralPath $Path).Path
 
-$hookSessionStart = Join-Path $root 'hooks/devlog-session-start.ps1'
-$hookNudge = Join-Path $root 'hooks/devlog-prompt-nudge.ps1'
-$hookStop = Join-Path $root 'hooks/devlog-stop.ps1'
-foreach ($hook in @($hookSessionStart, $hookNudge, $hookStop)) {
-    if (-not (Test-Path -LiteralPath $hook -PathType Leaf)) {
-        throw "Missing hook script: $hook"
-    }
-}
-
 if ([string]::IsNullOrWhiteSpace($HookShell)) {
     $shellCommand = Get-Command pwsh -ErrorAction SilentlyContinue
     if ($null -eq $shellCommand) {
@@ -52,6 +44,23 @@ if ([string]::IsNullOrWhiteSpace($HookShell)) {
     $shellCommand = Get-Command $HookShell -ErrorAction Stop
 }
 $shellPath = $shellCommand.Source
+$shellLeaf = [System.IO.Path]::GetFileName($shellPath)
+$isBashHook = ($shellLeaf -match '^(?i:bash)(?:\.exe)?$')
+$isWslBash = ($shellPath -match '(?i)[\\/]Windows[\\/]System32[\\/]bash\.exe$')
+$hookExtension = if ($isBashHook) { '.sh' } else { '.ps1' }
+
+$hookSessionStart = Join-Path $root ('hooks/devlog-session-start' + $hookExtension)
+$hookNudge = Join-Path $root ('hooks/devlog-prompt-nudge' + $hookExtension)
+$hookStop = Join-Path $root ('hooks/devlog-stop' + $hookExtension)
+$requiredHooks = @($hookSessionStart, $hookNudge, $hookStop)
+if ($isBashHook) {
+    $requiredHooks += (Join-Path $root 'hooks/devlog-common.sh')
+}
+foreach ($hook in $requiredHooks) {
+    if (-not (Test-Path -LiteralPath $hook -PathType Leaf)) {
+        throw "Missing hook script: $hook"
+    }
+}
 
 # Report the exact shell under test; PS 5.1 vs 7 differences matter here.
 # Scope ErrorActionPreference down for the probe: Windows PowerShell 5.1
@@ -59,11 +68,16 @@ $shellPath = $shellCommand.Source
 $previousEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-    $shellVersion = (& $shellPath -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>$null | Out-String).Trim()
+    if ($isBashHook) {
+        $shellVersion = (& $shellPath --version 2>$null | Select-Object -First 1 | Out-String).Trim()
+    } else {
+        $shellVersion = (& $shellPath -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>$null | Out-String).Trim()
+    }
 } finally {
     $ErrorActionPreference = $previousEap
 }
-Write-Host "Testing hooks with: $shellPath (PowerShell $shellVersion)"
+$shellFamily = if ($isBashHook) { 'Bash' } else { 'PowerShell' }
+Write-Host "Testing hooks with: $shellPath ($shellFamily $shellVersion)"
 
 # Japanese assertion needle, kept as escapes so this file stays ASCII-only
 # (an ASCII-only .ps1 parses identically under PS 5.1 and 7, BOM or not).
@@ -71,6 +85,47 @@ $jaNeedle = [regex]::Unescape('\u958b\u767a\u30ed\u30b0')   # kanji for "dev log
 
 function Get-NowEpoch {
     return [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+}
+
+$hookPathCache = @{}
+function ConvertTo-HookPath {
+    # Git Bash and WSL receive native Windows paths from this PowerShell
+    # harness. Convert only the synthetic devlog root; hook script paths stay
+    # relative to the repository working directory.
+    param([Parameter(Mandatory = $true)][string]$NativePath)
+
+    if (-not $isBashHook -or $env:OS -ne 'Windows_NT') {
+        return $NativePath
+    }
+    if ($hookPathCache.ContainsKey($NativePath)) {
+        return [string]$hookPathCache[$NativePath]
+    }
+
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        if ($isWslBash) {
+            # The legacy WSL bash.exe wrapper drops positional parameters
+            # following `-c`; call wslpath through wsl.exe instead.
+            $converted = (& wsl.exe -e wslpath -u $NativePath 2>$null | Out-String).Trim()
+        } else {
+            # Git for Windows ships cygpath beside its Bash runtime.
+            $gitRoot = Split-Path -Parent (Split-Path -Parent $shellPath)
+            $cygpath = Join-Path $gitRoot 'usr/bin/cygpath.exe'
+            if (-not (Test-Path -LiteralPath $cygpath -PathType Leaf)) {
+                throw "Could not locate cygpath beside Bash: $shellPath"
+            }
+            $converted = (& $cygpath -u $NativePath 2>$null | Out-String).Trim()
+        }
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($converted)) {
+            throw "Could not convert a Windows fixture path for Bash: $NativePath"
+        }
+    } finally {
+        $ErrorActionPreference = $previousEap
+    }
+
+    $hookPathCache[$NativePath] = $converted
+    return $converted
 }
 
 function Invoke-Hook {
@@ -82,7 +137,15 @@ function Invoke-Hook {
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $shellPath
-    $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $HookPath + '"'
+    if ($isBashHook) {
+        # A relative path avoids MSYS/WSL drive-path ambiguity while the
+        # working directory keeps source-relative helper loading stable.
+        $hookName = [System.IO.Path]::GetFileName($HookPath)
+        $psi.Arguments = '--noprofile --norc "hooks/' + $hookName + '"'
+        $psi.WorkingDirectory = $root
+    } else {
+        $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $HookPath + '"'
+    }
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
@@ -96,7 +159,16 @@ function Invoke-Hook {
         }
     }
     foreach ($key in $ChildEnvironment.Keys) {
-        $psi.EnvironmentVariables[$key] = [string]$ChildEnvironment[$key]
+        $value = [string]$ChildEnvironment[$key]
+        if ($isBashHook -and $key -eq 'CLAUDE_DEVLOG_DIR') {
+            $value = ConvertTo-HookPath -NativePath $value
+        }
+        $psi.EnvironmentVariables[$key] = $value
+    }
+    if ($isWslBash) {
+        # WSL imports opt-in Windows variables through WSLENV. Values are
+        # already converted above, so no /p translation flag is needed.
+        $psi.EnvironmentVariables['WSLENV'] = 'CLAUDE_DEVLOG_DIR:CLAUDE_DEVLOG_LANG'
     }
 
     $process = [System.Diagnostics.Process]::Start($psi)
@@ -225,6 +297,10 @@ function Set-DailyJournal {
 function Get-ExpectedDailyPath {
     param([Parameter(Mandatory = $true)][string]$DevlogRoot)
     $today = Get-Date -Format 'yyyy-MM-dd'
+    if ($isBashHook) {
+        $hookRoot = ConvertTo-HookPath -NativePath $DevlogRoot
+        return ($hookRoot.TrimEnd('/') + '/daily/' + $today + '.md')
+    }
     return (Join-Path (Join-Path $DevlogRoot 'daily') ($today + '.md'))
 }
 
@@ -436,6 +512,16 @@ Add-Case 'stop-allows-on-invalid-stdin' {
     Assert-Allowed -Result $result -Label 'Stop with unparseable stdin (fail-open)'
 }
 
+Add-Case 'stop-allows-on-invalid-nested-json' {
+    # The dependency-free Bash reader still validates nested JSON grammar.
+    # A malformed ignored field must not turn otherwise invalid input into an
+    # enforceable session.
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId 's1' -Content "$((Get-NowEpoch) - 100)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"s1","nested":[tru e]}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Allowed -Result $result -Label 'Stop with malformed nested JSON (fail-open)'
+}
+
 Add-Case 'stop-en-language' {
     $caseRoot = New-CaseRoot -WithMarkerDir
     Set-Marker -DevlogRoot $caseRoot -SessionId 's1' -Content "$((Get-NowEpoch) - 100)" | Out-Null
@@ -491,6 +577,70 @@ Add-Case 'stop-blocks-when-stop-hook-active-is-string-false' {
     $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"s1","stop_hook_active":"false"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
     $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
     Assert-Condition ($json.decision -eq 'block') 'A non-boolean stop_hook_active value should not suppress the block.'
+}
+
+Add-Case 'stop-blocks-when-stop-hook-active-is-string-true' {
+    # Only the JSON boolean true activates the loop guard. A string that
+    # merely spells "true" must not weaken enforce-once behavior.
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId 's1' -Content "$((Get-NowEpoch) - 100)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"s1","stop_hook_active":"true"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
+    Assert-Condition ($json.decision -eq 'block') 'A string stop_hook_active value should not suppress the block.'
+}
+
+Add-Case 'stop-blocks-when-stop-hook-active-is-nested-only' {
+    # A text search for the field would confuse nested payload data with the
+    # top-level protocol guard. Both implementations must inspect the root.
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId 's1' -Content "$((Get-NowEpoch) - 100)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"s1","nested":{"stop_hook_active":true}}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
+    Assert-Condition ($json.decision -eq 'block') 'A nested stop_hook_active value should not suppress the block.'
+}
+
+# POSIX permits quote, backslash, and control characters in filenames (NUL
+# and slash excepted). These synthetic Bash-only cases prove that hand-built
+# JSON remains valid and round-trips the exact path without adding jq or
+# exposing a real journal path. Windows cannot create these fixture names.
+if ($isBashHook -and $env:OS -ne 'Windows_NT') {
+    function New-SpecialPathCaseRoot {
+        $script:caseCounter++
+        $segment = 'json-"quote"-\backslash-' + [char]0x09 + 'tab-' + [char]0x0A + 'newline-' + [char]0x01 + 'control'
+        $caseRoot = Join-Path $tempRoot ('case-' + $script:caseCounter + '-' + $segment)
+        New-Item -ItemType Directory -Path $caseRoot | Out-Null
+        return $caseRoot
+    }
+
+    Add-Case 'bash-session-start-json-escapes-special-path' {
+        $caseRoot = New-SpecialPathCaseRoot
+        $result = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":"json-session"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+        Assert-Condition ($result.ExitCode -eq 0) 'Bash SessionStart should exit 0 for a special-character path.'
+        Assert-Condition ([string]::IsNullOrWhiteSpace($result.Stderr)) 'Bash SessionStart should keep stderr silent for a special-character path.'
+        $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
+        $expectedDaily = Get-ExpectedDailyPath -DevlogRoot $caseRoot
+        Assert-Condition ($json.hookSpecificOutput.additionalContext.Contains($expectedDaily)) 'SessionStart JSON should round-trip quote, backslash, and control characters in the path.'
+        Assert-Condition (Test-Path -LiteralPath (Join-Path (Join-Path $caseRoot '.devlog-markers') 'json-session.start')) 'SessionStart should write its marker under the special-character path.'
+    }
+
+    Add-Case 'bash-nudge-json-escapes-special-path' {
+        $caseRoot = New-SpecialPathCaseRoot
+        Set-Marker -DevlogRoot $caseRoot -SessionId 'json-nudge' -Content "$((Get-NowEpoch) - 2000)" | Out-Null
+        $result = Invoke-Hook -HookPath $hookNudge -StdinText '{"session_id":"json-nudge"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+        $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
+        $expectedDaily = Get-ExpectedDailyPath -DevlogRoot $caseRoot
+        Assert-Condition ($json.hookSpecificOutput.additionalContext.Contains($expectedDaily)) 'Nudge JSON should round-trip quote, backslash, and control characters in the path.'
+    }
+
+    Add-Case 'bash-stop-json-escapes-special-path' {
+        $caseRoot = New-SpecialPathCaseRoot
+        Set-Marker -DevlogRoot $caseRoot -SessionId 'json-stop' -Content "$((Get-NowEpoch) - 100)" | Out-Null
+        $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"json-stop"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+        $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
+        $expectedDaily = Get-ExpectedDailyPath -DevlogRoot $caseRoot
+        Assert-Condition ($json.decision -eq 'block') 'Bash Stop should still block for a special-character path.'
+        Assert-Condition ($json.reason.Contains($expectedDaily)) 'Stop JSON should round-trip quote, backslash, and control characters in the path.'
+    }
 }
 
 # --- Runner --------------------------------------------------------------------

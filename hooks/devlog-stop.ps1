@@ -54,9 +54,10 @@ try {
     if ($raw) { try { $data = $raw | ConvertFrom-Json } catch { $data = $null } }
 
     # Already continuing because a Stop hook blocked: allow, to avoid loops.
-    # Explicit -eq $true: the spec sends a boolean, and a defensive string
-    # value like "false" must not count as truthy here.
-    if ($data -and ($data.stop_hook_active -eq $true)) { exit 0 }
+    # Require the protocol's actual JSON boolean. PowerShell's loose equality
+    # would otherwise coerce the defensive string "true" to $true and silently
+    # suppress this session's enforce-once block.
+    if ($data -and ($data.stop_hook_active -is [bool]) -and $data.stop_hook_active) { exit 0 }
 
     $sid = if ($data -and $data.session_id) { [string]$data.session_id } else { $null }
     if (-not $sid) { exit 0 }   # unknown session: allow

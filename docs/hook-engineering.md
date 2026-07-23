@@ -1,10 +1,10 @@
-# Hook Engineering Notes (PowerShell, Windows-first)
+# Hook Engineering Notes (PowerShell And Bash)
 
-Field-derived patterns for writing Claude Code hooks in PowerShell, and the
-specific design decisions behind the three hooks in this repository. Every
-rule here traces to an observed failure or to the official hooks reference
-(field names and event semantics verified against
-`https://code.claude.com/docs/en/hooks` on 2026-07-16).
+Field-derived patterns for writing Claude Code hooks in PowerShell and Bash,
+and the specific design decisions behind the two implementations of the three
+hooks in this repository. Every rule here traces to an observed failure, a
+pipe test, or the official hooks reference (field names and event semantics
+verified against `https://code.claude.com/docs/en/hooks` on 2026-07-23).
 
 ## The Three-Layer Pattern
 
@@ -112,6 +112,37 @@ non-ASCII message text, so they are stored as **UTF-8 with BOM** — PowerShell
 7 accepts the BOM too. ASCII-only scripts (like the test harness) stay
 BOM-less and construct non-ASCII needles with `[regex]::Unescape`.
 
+The Bash hooks are UTF-8 **without BOM** so the shebang is the first byte.
+`printf '%s' "$json"` emits the script's UTF-8 bytes without a console
+re-encoding layer. Both implementations are checked by the same strict UTF-8
+byte capture in `scripts/test-hooks.ps1`.
+
+## Bash Portability And Dependency Decisions
+
+The Unix implementation targets Bash 3.2+ on macOS/Linux rather than pure
+POSIX `sh`. Bash byte iteration lets the shared helper JSON-escape arbitrary
+paths without installing jq, Python, or Node.js. Standard utilities used are
+`awk`, `cat`, `date`, `mkdir`, `rm`, and `stat`.
+
+- **Input JSON is not evaluated.** A bounded AWK parser reads only the
+  top-level `session_id` and `stop_hook_active` fields, skips nested/string
+  values, and returns no result on malformed input. The latter fails open.
+- **Output path escaping is byte-based.** Quote/backslash are escaped and C0
+  controls become `\u00xx`; UTF-8 bytes pass through unchanged. POSIX-only
+  tests use synthetic paths containing quote, backslash, tab, newline, and
+  `0x01`.
+- **`stat` differs by platform.** Linux uses `stat -c %Y`; macOS/BSD uses
+  `stat -f %m`. Failure in both forms is unjudgeable and therefore silent.
+- **Fail-silent is an outer boundary.** Each entrypoint disables inherited
+  `errexit`/`nounset`/`pipefail`, runs `main 2>/dev/null || :`, and ends in
+  `exit 0`. Commands that intentionally produce JSON use only `printf`.
+- **Keep the directory together.** The three `.sh` entrypoints source
+  `devlog-common.sh` relative to `BASH_SOURCE[0]`.
+
+The complete architecture and dependency rationale live in
+[posix-hooks-design.md](posix-hooks-design.md); the cross-shell matrix lives in
+[posix-hooks-test-plan.md](posix-hooks-test-plan.md).
+
 ## PowerShell Gotchas That Bit These Hooks
 
 - **Cast precedence**: member access binds tighter than a cast.
@@ -128,11 +159,10 @@ BOM-less and construct non-ASCII needles with `[regex]::Unescape`.
   different axis from `$ErrorActionPreference = 'Stop'`, which the hooks DO
   set: EAP governs how cmdlet errors surface (catchable vs stderr leak),
   StrictMode governs whether absent variables/properties are errors.
-- **Compare protocol booleans explicitly.** PowerShell treats any non-empty
-  string as truthy, so `if ($data.stop_hook_active)` would treat a
-  defensive string value `"false"` as true and skip enforcement. Use
-  `($data.stop_hook_active -eq $true)` for fields the spec defines as
-  booleans.
+- **Require the protocol boolean type.** PowerShell treats any non-empty
+  string as truthy, and even loose `-eq $true` coerces the string `"true"` to
+  a boolean. The loop guard therefore requires
+  `($data.stop_hook_active -is [bool]) -and $data.stop_hook_active`.
 - **PS 5.1 turns redirected native stderr into terminating errors** while
   `$ErrorActionPreference = 'Stop'`. Any harness that shells out (git, a
   child PowerShell) with `2>&1` or `2>$null` must scope the preference down
@@ -142,6 +172,8 @@ BOM-less and construct non-ASCII needles with `[regex]::Unescape`.
   concerns.
 
 ## Registration (settings.json)
+
+PowerShell:
 
 ```json
 {
@@ -162,6 +194,33 @@ BOM-less and construct non-ASCII needles with `[regex]::Unescape`.
 }
 ```
 
+macOS/Linux Bash:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash --noprofile --norc /path/to/claude-code-devlog-hooks/hooks/devlog-session-start.sh",
+            "timeout": 15,
+            "statusMessage": "Checking dev journal routine"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Complete three-event examples are
+[`examples/hooks-settings.json`](../examples/hooks-settings.json) for
+PowerShell and
+[`examples/hooks-settings.bash.json`](../examples/hooks-settings.bash.json)
+for Bash.
+
 - Use **forward slashes and a space-free path** in `command`: the string
   survives both bash-style and native execution without quoting problems.
 - `-NoProfile` keeps startup fast and deterministic; `-ExecutionPolicy
@@ -176,25 +235,27 @@ BOM-less and construct non-ASCII needles with `[regex]::Unescape`.
   SessionStart/UserPromptSubmit, `decision: "block"` + `reason` for Stop).
   Exit 2 + stderr is a blunter alternative blocking path; other exit codes
   are non-blocking errors.
-- **Config reflection timing**: hooks added to `settings.json` mid-session
-  may not fire in the already-running session. They reliably apply from the
-  next session (or after reviewing `/hooks`). Plan verification accordingly.
+- **Config reflection timing**: current Claude Code settings documentation
+  says hook changes are watched and reloaded in running sessions. A past event
+  is not replayed, so use `/hooks` to review the active registration and start
+  a new session for a deterministic SessionStart smoke test.
 
 ## Design Decisions Specific To These Hooks
 
 - **One variable drives all paths.** Everything derives from the devlog
-  root (`CLAUDE_DEVLOG_DIR`, falling back to a script-top default):
+  root (`CLAUDE_DEVLOG_DIR`, falling back to a script-top default in either
+  implementation):
   `daily/<date>.md`, `topics/`, and `.devlog-markers/`. No other location
   is read or written.
 - **Markers live under the devlog root**, so wiping or moving the root
   never leaves stale state elsewhere, and the hooks stay portable.
 - **Marker pruning**: SessionStart fires on startup, resume, and compact,
   so markers accumulate; each run prunes markers older than
-  `$MarkerRetentionDays` (default 7 days).
+  `$MarkerRetentionDays` / `MARKER_RETENTION_DAYS` (default 7 days).
 - **The double gate for nudges**: nudge only when (session age >=
   threshold) AND (journal staleness >= threshold), both against the same
-  `$ThresholdSec` (default 20 minutes). One gate alone either nags fresh
-  sessions or nags right after a legitimate update.
+  `$ThresholdSec` / `THRESHOLD_SEC` (default 20 minutes). One gate alone
+  either nags fresh sessions or nags right after a legitimate update.
 - **Language switching** (`CLAUDE_DEVLOG_LANG`: `ja` default / `en`) is
   resolved per-run from the environment, with unknown values falling back
   to the script default. Messages are the only localized part; the JSON
