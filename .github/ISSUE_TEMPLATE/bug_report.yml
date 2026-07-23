@@ -41,9 +41,9 @@ body:
       label: Environment
       description: Shell and versions. No machine names or private paths.
       placeholder: |
-        PowerShell: pwsh 7.4 (or Windows PowerShell 5.1)
+        Hook runtime: pwsh 7.4 / Windows PowerShell 5.1 / bash 3.2+
         Claude Code version: 2.x.y
-        OS: Windows 11
+        OS: Windows 11 / macOS / Linux
         CLAUDE_DEVLOG_LANG: ja
     validations:
       required: true
@@ -54,11 +54,12 @@ body:
       description: |
         The fastest reproduction is a pipe test with synthetic stdin, for example:
         `'{"session_id":"t"}' | pwsh -NoProfile -File hooks/devlog-stop.ps1`
+        or `printf '%s' '{"session_id":"t"}' | bash hooks/devlog-stop.sh`
         with CLAUDE_DEVLOG_DIR pointing at a throwaway directory.
       placeholder: |
         1. Set CLAUDE_DEVLOG_DIR to a temp directory
         2. Write a marker file with epoch N
-        3. Pipe {"session_id":"t"} into hooks/devlog-stop.ps1
+        3. Pipe {"session_id":"t"} into the matching devlog-stop entrypoint
         4. Observe ...
     validations:
       required: true

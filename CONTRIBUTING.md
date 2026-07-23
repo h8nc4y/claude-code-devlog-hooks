@@ -23,30 +23,38 @@ verify.
 
 ## Hook Invariants (Do Not Break)
 
-Every change to `hooks/*.ps1` must preserve:
+Every change to `hooks/*.ps1` or `hooks/*.sh` must preserve:
 
 1. **Fail-open AND fail-silent**: any error or unjudgeable state allows,
    with nothing on stdout or stderr; every path ends in `exit 0` (the
    structured block JSON is emitted before a normal exit). Hooks set
    `$ErrorActionPreference = 'Stop'` so cmdlet errors become catchable
-   instead of leaking to stderr — keep it, and keep degraded states
-   disclosed in the injected context rather than invisible.
-2. **Raw UTF-8 stdout** via `Write-Utf8Stdout`; never pipe objects or
-   strings directly to stdout.
-3. **No `Set-StrictMode` in hooks** — the logic relies on absent JSON
+   instead of leaking to stderr. Bash entrypoints run `main` behind a
+   stderr-suppressing boundary and disable inherited fail-fast shell options.
+   Keep degraded states disclosed in the injected context rather than
+   invisible.
+2. **Raw UTF-8 stdout** via `Write-Utf8Stdout` (PowerShell) or `printf`
+   (Bash); never let a console encoding layer rewrite the bytes.
+3. **No `Set-StrictMode` in PowerShell hooks** — the logic relies on absent JSON
    properties evaluating to `$null`; strict mode silently disables the
    hook through the fail-open catch (rationale in
    [docs/hook-engineering.md](docs/hook-engineering.md)).
-4. **UTF-8 BOM on hook files** (they contain non-ASCII text and must parse
-   under Windows PowerShell 5.1). `validate-oss-readiness.ps1` checks this.
+4. **Source encoding by runtime**: UTF-8 BOM on `.ps1` hook files (Windows
+   PowerShell 5.1), UTF-8 without BOM on `.sh` files (the shebang must be the
+   first bytes). `validate-oss-readiness.ps1` checks both.
 5. **Single-variable configuration**: all paths derive from the devlog
    root; no machine-specific absolute paths.
 6. **Enforce-once semantics** for Stop (marker + mtime comparison,
    `stop_hook_active` guard) and the double gate for the nudge.
 
 If a change alters observable behavior, add or adjust a case in
-`scripts/test-hooks.ps1` — behavior claims in this repository are backed
-by pipe tests, not by assertion.
+`scripts/test-hooks.ps1` and run it against both implementations. The shared
+30 cases must stay equivalent; POSIX-only filesystem cases may be conditional.
+Behavior claims in this repository are backed by pipe tests, not by assertion.
+
+The Bash port intentionally has no jq/Python/Node runtime dependency. Before
+adding a dependency to hooks that fire every turn, document the portability
+cost and why the standard-tool implementation is insufficient.
 
 ## Grounding Rules
 
@@ -73,15 +81,18 @@ From the repository root:
 pwsh -NoProfile -File ./scripts/validate-oss-readiness.ps1
 pwsh -NoProfile -File ./scripts/test-hooks.ps1
 pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell   # Windows only
+pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash
 pwsh -NoProfile -File ./scripts/test-scan-private-markers.ps1
 pwsh -NoProfile -File ./scripts/scan-private-markers.ps1
+bash --noprofile --norc -n ./hooks/*.sh
 git diff --check
 ```
 
-Windows PowerShell can host the scripts too
+Windows PowerShell can host the PowerShell scripts too
 (`powershell -NoProfile -ExecutionPolicy Bypass -File ...`). On macOS or
 Linux, install PowerShell 7 (`pwsh`) and skip the `-HookShell powershell`
-run — CI covers it on `windows-latest`.
+run — CI covers it on `windows-latest`. CI runs Bash behavior and syntax on
+`ubuntu-latest`.
 
 ## Pull Request Expectations
 

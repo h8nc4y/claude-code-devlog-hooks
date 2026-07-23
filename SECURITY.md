@@ -1,8 +1,8 @@
 # Security Policy
 
-This repository ships PowerShell scripts that Claude Code executes
-automatically on session events. That warrants an explicit threat model,
-even though the scripts are small.
+This repository ships PowerShell and Bash scripts that Claude Code executes
+automatically on session events. That warrants an explicit threat model, even
+though the scripts are small.
 
 ## Threat Model
 
@@ -12,9 +12,9 @@ What the hooks do — and everything they do:
   `UserPromptSubmit`, and `Stop` events (the Stop hook runs at the end of
   every turn). No scheduled or background execution.
 - **Network**: none. The hooks make no network calls of any kind.
-- **Filesystem reads**: the stdin JSON provided by Claude Code, the
-  session marker files, and the mtime of today's journal file — all under
-  the configured devlog root (`CLAUDE_DEVLOG_DIR`).
+- **Filesystem reads**: the hook source/helper, stdin JSON provided by Claude
+  Code, session marker files, and the mtime of today's journal file. Runtime
+  state stays under the configured devlog root (`CLAUDE_DEVLOG_DIR`).
 - **Filesystem writes**: marker files under `<devlog root>/.devlog-markers/`
   (plus creating that directory, and the devlog root itself on first run).
   The hooks never write journal content and never touch paths outside the
@@ -27,11 +27,13 @@ What the hooks do — and everything they do:
 - **Injection surface**: `session_id` from stdin is used in a filename
   after replacing every character outside `[A-Za-z0-9_.-]`; the pipe tests
   cover this. Message text is static apart from interpolated paths derived
-  from the devlog root.
+  from the devlog root. The Bash implementation parses only validated JSON
+  values and JSON-escapes quote, backslash, and C0 control bytes in paths; it
+  never evaluates input or path text as shell code.
 
-**Before installing, read the three scripts in `hooks/`.** They are short
-by design. Anything that asks Claude Code to execute a script on every
-turn deserves that scrutiny, including this repository.
+**Before installing, read the three entrypoints and their shared helper in
+`hooks/`.** Anything that asks Claude Code to execute a script on every turn
+deserves that scrutiny, including this repository.
 
 ## Supported Versions
 
@@ -62,7 +64,7 @@ Public issues may include:
   fires".
 - Sanitized pipe-test transcripts using placeholder paths such as
   `C:/path/to/devlog`.
-- PowerShell and Claude Code version numbers.
+- PowerShell or Bash and Claude Code version numbers.
 
 Public issues must not include:
 

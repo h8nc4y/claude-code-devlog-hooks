@@ -11,6 +11,8 @@
 - [ ] `pwsh -NoProfile -File ./scripts/validate-oss-readiness.ps1`
 - [ ] `pwsh -NoProfile -File ./scripts/test-hooks.ps1`
 - [ ] `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell` (on Windows)
+- [ ] `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash`
+- [ ] `bash --noprofile --norc -n ./hooks/*.sh`
 - [ ] `pwsh -NoProfile -File ./scripts/test-scan-private-markers.ps1`
 - [ ] `pwsh -NoProfile -File ./scripts/scan-private-markers.ps1`
 - [ ] `git diff --check`

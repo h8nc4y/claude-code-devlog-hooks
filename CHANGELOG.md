@@ -6,6 +6,33 @@ The format loosely follows Keep a Changelog conventions.
 
 ## Unreleased
 
+### Added
+
+- Dependency-free Bash 3.2+ implementations of all three hooks for
+  macOS/Linux:
+  - `hooks/devlog-session-start.sh`
+  - `hooks/devlog-prompt-nudge.sh`
+  - `hooks/devlog-stop.sh`
+- Shared Bash helper (`hooks/devlog-common.sh`) with a bounded top-level JSON
+  parser, strict boolean `stop_hook_active` handling, JSON string escaping for
+  arbitrary Unix paths, epoch validation, marker retention, and GNU/BSD
+  `stat` compatibility. No jq/Python/Node runtime dependency.
+- Bash settings example (`examples/hooks-settings.bash.json`), focused design
+  and test-plan documents, and an Ubuntu CI job with syntax plus pipe tests.
+
+### Changed
+
+- Expanded `scripts/test-hooks.ps1` from 27 to 30 cross-runtime cases:
+  defensive string/nested `stop_hook_active` inputs must not activate the
+  top-level boolean loop guard, and malformed nested JSON must fail open.
+  Native POSIX Bash runs add three synthetic quote/backslash/control-character
+  path JSON cases (33 total).
+- Tightened the PowerShell Stop guard to require an actual JSON boolean;
+  PowerShell loose equality previously accepted the string `"true"`.
+- Updated installation, validation, contribution, and engineering guidance
+  for the PowerShell/Bash dual runtime and current hook-settings reload
+  behavior.
+
 ## 0.1.0 - 2026-07-16
 
 ### Added

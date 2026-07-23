@@ -100,6 +100,52 @@ function Assert-HookFile {
     }
 }
 
+function Assert-BashHookFile {
+    # Bash entrypoints must remain self-contained through the checked-in
+    # common helper, fail silently, and emit JSON through raw printf bytes.
+    param([string]$RelativePath)
+
+    $filePath = Get-RepoFilePath -RelativePath $RelativePath
+    if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+        return
+    }
+
+    Assert-FileContains -RelativePath $RelativePath -Pattern '(?m)^#!/usr/bin/env bash$' -Description 'portable Bash shebang'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'devlog-common\.sh' -Description 'shared Bash helper loading'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'main 2>/dev/null' -Description 'fail-silent main boundary'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'exit 0' -Description 'fail-open exit'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'printf ' -Description 'raw UTF-8 output via printf'
+    Assert-FileNotContains -RelativePath $RelativePath -Pattern '[A-Za-z]:\\[^\r\n]*\\' -Description 'hardcoded absolute Windows paths'
+    Assert-FileNotContains -RelativePath $RelativePath -Pattern '(?m)^\s*jq(?:\s|$)' -Description 'jq runtime invocation'
+
+    $bytes = [System.IO.File]::ReadAllBytes($filePath)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        Add-Failure "$RelativePath must be UTF-8 without BOM for Unix shebang execution."
+    }
+}
+
+function Assert-BashCommonFile {
+    param([string]$RelativePath)
+
+    $filePath = Get-RepoFilePath -RelativePath $RelativePath
+    if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+        return
+    }
+
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'CLAUDE_DEVLOG_DIR' -Description 'devlog root resolution via CLAUDE_DEVLOG_DIR'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'CLAUDE_DEVLOG_LANG' -Description 'message language resolution via CLAUDE_DEVLOG_LANG'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'devlog_json_escape' -Description 'manual JSON string escaping'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'stop_hook_active' -Description 'top-level boolean loop-guard parsing'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'stat -c %Y' -Description 'GNU stat mtime support'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'stat -f %m' -Description 'BSD stat mtime support'
+    Assert-FileNotContains -RelativePath $RelativePath -Pattern '(?m)^\s*jq(?:\s|$)' -Description 'jq runtime invocation'
+
+    $bytes = [System.IO.File]::ReadAllBytes($filePath)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        Add-Failure "$RelativePath must be UTF-8 without BOM for Bash sourcing."
+    }
+}
+
 function Test-SkillFrontmatter {
     $skillPath = Get-RepoFilePath -RelativePath 'SKILL.md'
     if (-not (Test-Path -LiteralPath $skillPath -PathType Leaf)) {
@@ -138,7 +184,9 @@ function Test-SkillFrontmatter {
 }
 
 function Test-ExampleSettings {
-    $settingsPath = Get-RepoFilePath -RelativePath 'examples/hooks-settings.json'
+    param([string]$RelativePath)
+
+    $settingsPath = Get-RepoFilePath -RelativePath $RelativePath
     if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
         return   # Assert-FileExists already reported it.
     }
@@ -147,13 +195,13 @@ function Test-ExampleSettings {
     try {
         $parsed = (Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json)
     } catch {
-        Add-Failure 'examples/hooks-settings.json must be valid JSON.'
+        Add-Failure "$RelativePath must be valid JSON."
         return
     }
 
     foreach ($eventName in @('SessionStart', 'Stop', 'UserPromptSubmit')) {
         if ($null -eq ($parsed.hooks.PSObject.Properties[$eventName])) {
-            Add-Failure "examples/hooks-settings.json must register the $eventName event."
+            Add-Failure "$RelativePath must register the $eventName event."
         }
     }
 }
@@ -175,8 +223,16 @@ $requiredFiles = @(
     'SKILL.md',
     'docs/SKILL.ja.md',
     'docs/hook-engineering.md',
+    'docs/posix-hooks-design.md',
+    'docs/posix-hooks-test-plan.md',
     'examples/hooks-settings.json',
+    'examples/hooks-settings.bash.json',
     'examples/journal-entry-template.md',
+    'HANDOFF.md',
+    'hooks/devlog-common.sh',
+    'hooks/devlog-session-start.sh',
+    'hooks/devlog-prompt-nudge.sh',
+    'hooks/devlog-stop.sh',
     'hooks/devlog-session-start.ps1',
     'hooks/devlog-prompt-nudge.ps1',
     'hooks/devlog-stop.ps1',
@@ -208,13 +264,22 @@ Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'val
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'scan-private-markers\.ps1' -Description 'private marker scan in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-scan-private-markers\.ps1' -Description 'private marker scan self-test in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-hooks\.ps1' -Description 'hook pipe-test in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'ubuntu-latest' -Description 'Ubuntu Bash hook job'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'HookShell bash' -Description 'Bash hook pipe-test in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'bash .* -n hooks/\*\.sh' -Description 'Bash syntax check in CI'
 
 Assert-HookFile -RelativePath 'hooks/devlog-session-start.ps1'
 Assert-HookFile -RelativePath 'hooks/devlog-prompt-nudge.ps1'
 Assert-HookFile -RelativePath 'hooks/devlog-stop.ps1'
+Assert-FileContains -RelativePath 'hooks/devlog-stop.ps1' -Pattern '-is \[bool\]' -Description 'strict JSON boolean stop_hook_active guard'
+Assert-BashCommonFile -RelativePath 'hooks/devlog-common.sh'
+Assert-BashHookFile -RelativePath 'hooks/devlog-session-start.sh'
+Assert-BashHookFile -RelativePath 'hooks/devlog-prompt-nudge.sh'
+Assert-BashHookFile -RelativePath 'hooks/devlog-stop.sh'
 
 Test-SkillFrontmatter
-Test-ExampleSettings
+Test-ExampleSettings -RelativePath 'examples/hooks-settings.json'
+Test-ExampleSettings -RelativePath 'examples/hooks-settings.bash.json'
 
 if ($failures.Count -gt 0) {
     Write-Host 'OSS readiness validation failed:'
