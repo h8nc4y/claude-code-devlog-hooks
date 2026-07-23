@@ -1,94 +1,64 @@
 # Handoff
 
-## Current goal
+## Current state
 
-Complete issue #3 as Class L: package the three hooks and root skill as a
-Claude Code plugin while keeping manual registration as a supported fallback.
+Issue #3 is complete. PR #5 merged into `main` as `1712d84` on 2026-07-24
+JST. The plugin package, manual fallback, Class L documents, tests, and CI are
+all synchronized.
 
-## Success metrics
+## Delivered
 
-- Strict Claude plugin validation passes on locally verified Claude Code
-  2.1.207.
-- One handler each registers SessionStart, UserPromptSubmit, and Stop with
-  Claude Code's selected Bash shell, a shared launcher, timeout, and status
-  message.
-- Plugin `userConfig` reaches existing hook variables through official
-  `CLAUDE_PLUGIN_OPTION_*` exports without shell interpolation.
-- Runtime dispatch executes PowerShell or Bash exactly once; unsupported input
-  exits bounded with a non-sensitive diagnostic.
-- Existing PowerShell 7, Windows PowerShell 5.1, and Bash behavior remains
-  green.
+- `.claude-plugin/plugin.json` exposes optional `devlog_dir` and `devlog_lang`.
+- `hooks/hooks.json` registers exactly one Bash-shell handler for
+  `SessionStart`, `UserPromptSubmit`, and `Stop`.
+- The root `SKILL.md` is auto-discovered without a competing `skills/` tree.
+- `hooks/devlog-plugin-launcher.sh` maps official
+  `CLAUDE_PLUGIN_OPTION_*` exports to existing hook configuration and executes
+  exactly one PowerShell or Bash implementation.
+- Git Bash converts the fixed PowerShell target with `cygpath -m --`.
+  Missing or failed conversion terminates with a fixed, non-sensitive
+  diagnostic.
+- Both direct shell entrypoints retain Git index mode `100755`.
 
-## Key files
+## Verification
 
-- `.claude-plugin/plugin.json`, `hooks/hooks.json`
-- `hooks/devlog-plugin-launcher.sh`
-- `scripts/test-plugin.ps1`, `scripts/test-plugin-launcher.sh`
-- `docs/plugin-*.md`, `README.md`, `CHANGELOG.md`
-
-## Decisions
-
-- Official Claude Code plugin/hook docs and the strict local validator are the
-  schema source of truth.
-- Hook schema has no documented OS branch; `shell: "bash"` avoids resolving a
-  generic PATH `bash` to WSL on Windows, then one launcher selects one core
-  runtime. PowerShell-only Windows keeps the manual settings fallback.
-- Config priority is non-empty plugin option, legacy environment, hook default.
-- Root `SKILL.md` is auto-discovered; no duplicate skill tree.
-- Git Bash converts the fixed PowerShell hook path explicitly with
-  `cygpath -m --`; missing or failed conversion is fail-closed.
-- No live install, marketplace operation, authentication, real Vault access,
-  external transmission, or cost.
-
-## Verification state
-
-- Requirements, architecture, detailed design, test plan, manifest, hook
-  registration, launcher, tests, and public docs are implemented.
-- Red-first package checks failed on missing files, then passed after
-  implementation.
+- Independent review: P1/P2/P3 = 0.
+- Final GitHub Actions run `30020457186`: Windows and Ubuntu jobs passed.
 - `claude plugin validate . --strict`: passed on Claude Code 2.1.207.
 - Plugin contract: passed on PowerShell 7 and Windows PowerShell 5.1.
-- Launcher: 13 synthetic/integration cases passed under both WSL Bash 5.3.9
-  and Git for Windows Bash; config priority, spaces and Windows shell
-  metacharacters, explicit native-path conversion, one-runtime selection, real
-  hook bridge, and redacted fail-closed paths covered.
-- Existing hook suite: 30/30 passed on pwsh 7.6.2, Windows PowerShell
-  5.1.26100.8894, and WSL Bash 5.3.9.
-- OSS readiness, Git Bash/WSL Bash syntax, marker scan self-test,
-  private-marker scan, Gitleaks directory/staged scans, Semgrep, and
-  `git diff --check`: passed. Semgrep first found the mutable checkout tag;
-  both jobs now pin the verified v5 SHA. Local `actionlint` is unavailable;
-  the workflow remains to be exercised by the PR CI.
-- Independent review found one P1 and one P2. The P1 was non-executable Git
-  index modes; both shell entrypoints are now `100755` and tested. The P2 was
-  Git Bash's failed implicit conversion of a metacharacter-bearing plugin root;
-  the launcher now uses explicit `cygpath -m --`, with a real-hook regression
-  and missing/failed-converter cases. The P3 deterministic-test gaps for the
-  manifest hook path and competing `skills/` directory are also covered.
-  The full local review-fix matrix is green; final independent re-review is
-  complete at P1/P2/P3 = 0.
-- Commit `78dde90` was pushed and PR #5 opened. Its first CI run
-  (`30019138135`) exposed two test-fixture portability defects: Ubuntu's
-  ambient `/usr/bin/pwsh` invalidated fallback selection, while Git for
-  Windows represented synthetic hook arguments in a different MSYS path
-  namespace. The fixture now uses an isolated shim-only `PATH`, an explicit
-  stdin-capture executable, and host-canonical path comparison. The 13 launcher
-  cases pass again on local Git Bash and WSL; independent review and remote CI
-  rerun for this test-only fix were completed. Ubuntu passed on run
-  `30019850958`; Windows then proved that `/tmp` must be canonicalized into the
-  native Windows namespace rather than back into a POSIX mount alias. The
-  comparison now uses `cygpath -m -l` for both sides and includes a local native
-  path probe. Run `30020175433` exposed the final equivalent-path form:
-  `RUNNER~1` versus `runneradmin`. Canonicalization now adds `--long-name`, and
-  the local probe starts from an existing hostile-name file converted through
-  the DOS short form. This is the third and final same-class fix attempt;
-  independent review and one final remote rerun are pending.
-- Live Claude plugin registration/install, marketplace publication, and actual
-  macOS/Bash 3.2: unverified by scope.
+- Launcher: 13/13 passed on Git for Windows Bash and WSL Bash 5.3.9.
+- Existing hook pipe tests: 30/30 passed on PowerShell 7.6.2, Windows
+  PowerShell 5.1.26100.8894, and WSL Bash 5.3.9.
+- OSS readiness, Git Bash/WSL syntax, marker scans, Gitleaks repository/history,
+  Semgrep (`p/default`, 43 files, 0 findings), and `git diff --check`: passed on
+  merged `main`.
 
-## Next steps
+## Decisions and lessons
 
-Freeze and independently review the CI fixture fix, then commit and push it to
-PR #5. Verify both remote jobs, merge when green, synchronize `main` with
-`origin/main`, clean the task branch, rerun the final matrix, and compact this
-handoff plus the central development log.
+- Official Claude Code plugin/hook docs plus the strict local validator are the
+  schema source of truth.
+- `shell: "bash"` uses Claude Code's Git Bash selection on native Windows and
+  avoids accidentally resolving WSL `bash.exe` from a generic `PATH`.
+- Config priority is non-empty plugin option, legacy environment, then hook
+  default. Configuration never selects an executable or script.
+- Launcher tests keep a shim-only `PATH`; required capture tools use explicit
+  absolute paths. Git Bash fixture paths are compared as full long native paths
+  via `cygpath -m -l`, covering virtual `/tmp` and 8.3 aliases without reducing
+  the assertion to a basename.
+- Manual `settings.json` registration remains the supported fallback for
+  PowerShell-only Windows hosts.
+
+## Unverified by scope
+
+- Live plugin installation in a Claude Code session
+- Marketplace publication
+- Real Vault writes
+- macOS hardware and Bash 3.2 runtime
+
+These remain explicit human/environment follow-ups. No authentication, external
+data transmission, marketplace action, or paid operation was performed.
+
+## Next step
+
+No required issue #3 work remains. For the next development loop, inspect the
+current open issues and repository state before selecting a new task.
