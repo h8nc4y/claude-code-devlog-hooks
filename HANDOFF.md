@@ -2,9 +2,9 @@
 
 ## Current goal
 
-`fix/hermetic-private-marker-scan` で private-marker scanner を fail-closed・
-hermetic・bounded に更新中。030 固有の GitHub URL allowlist、
-`CLAUDE_CODE_DEVLOG_HOOKS_PRIVATE_MARKERS`、plugin/hook/Bash CI 契約は維持する。
+private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8で
+`main`へ統合済み。030 固有の GitHub URL allowlist、
+`CLAUDE_CODE_DEVLOG_HOOKS_PRIVATE_MARKERS`、plugin/hook/Bash CI 契約も維持した。
 
 ## Delivered
 
@@ -79,10 +79,14 @@ hermetic・bounded に更新中。030 固有の GitHub URL allowlist、
 - AST/POSIX/Windows deadlineの独立read-only再review: CLEAN。
 - Gitleaks directory / history（11 commits）: 0 findings。
   Semgrep `p/default`（44 files / 88 rules）: 0 findings / 0 errors。
+- PR #8 Actions run `30133375935` とmerge後main run `30134332191` は、
+  Windows / Ubuntuの全jobがPASS。
 
-## Remaining before merge
+## Integration state
 
-- commit/push/PR、GitHub Actions、merge 後 main/cleanup は親taskが引き取る。
+- PR #8はsquash merge済み（merge `a74f34ed8457797384a0b79863644157ea94991e`）。
+- local / `origin/main` は同じmerge commitで、task branch削除・worktree clean・
+  open PR 0まで確認済み。
 
 ## External gates / unverified
 
