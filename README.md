@@ -393,6 +393,7 @@ pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell   # Windows
 pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash
 pwsh -NoProfile -File ./scripts/test-scan-private-markers.ps1
 pwsh -NoProfile -File ./scripts/scan-private-markers.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-scan-private-markers.ps1   # Windows only
 bash --noprofile --norc -n ./hooks/*.sh ./scripts/*.sh
 git diff --check
 ```
@@ -404,6 +405,104 @@ PowerShell 5.1 / Bash pipe-test targets, Bash syntax, the scan self-test, the
 private-marker scan, plugin package/launcher tests, and a whitespace check on
 pull requests and pushes to `main`. The strict Claude CLI validator is a local
 release check because CI does not install or authenticate Claude Code.
+
+The scanner self-test retains the PowerShell host that starts it, so the
+`pwsh` and `powershell` commands are distinct compatibility measurements.
+GitHub Actions runs the full scanner suite with PowerShell 7 and Windows
+PowerShell 5.1 on Windows, and PowerShell 7 on Ubuntu 24.04. Its first bounded
+process invocation launches a BOM-less script through `-File`, streams binary
+stdin in partial reads, and requires exact stdout, independent stderr, EOF, and
+the nonzero exit code. A native `git cat-file --batch` fixture separately
+proves that no UTF-8 preamble contaminates the binary protocol. AST regressions
+also treat `.Invoke*()` scriptblocks, direct or transitive local-function calls,
+scope-qualified calls, risky aliases, and static/dynamic function-object lookup
+as eager paths. It also rejects Invoke-like member dispatch, dynamic dot
+sourcing, static literal dot/call operators, bare or aliased script paths,
+their function/stored-ScriptBlock wrappers, ScriptBlock factories and Variable
+provider recovery, Alias/Function/Variable provider mutation, a function or
+alias that shadows the target helper, and risky class construction through
+`New-Object`, `Activator`, conversion (including `-as`), static-member access,
+or a wrapper.
+Content/variable mutations such as `Set-Content` and `Set-Variable` also fail
+closed, including scope-changing bootstrap replacement. The shared pure policy
+rejects unresolved provider paths while retaining only two top-level bootstrap
+dot sources whose root and relative path are built by exact `System.IO.Path`
+static calls, plus the exact literal
+`Get-Command git -CommandType Application` lookup, so no earlier
+bounded-process invocation can hide ahead of that transport gate.
+Dormant function/type bodies do not become eager merely because their source
+appears before the bootstrap. When a wrapper is actually called, function-local
+bootstrap-like names, `[ref]` values with a guaranteed prior local binding, and
+unrelated object
+`GetValue`/`SetValue` methods remain valid; `script:`/`global:` reassignment,
+mutable `SessionState.PSVariable.Get` handles, and aliases of the PSVariable
+table remain fail-closed. A stored scriptblock is dormant only while it stays
+in an unreferenced function-local binding; scope escape, inline command use,
+provider recovery, and later invocation restore its risk. Index/member mutation
+does not establish a new local binding for a later `[ref]`. Persistent
+script/global function or alias shadowing of the process helper also fails
+closed. Parentheses, casts, subexpressions, and single-element array indexing
+are treated as transparent around the PSVariable table. Unknown command
+wrappers cannot erase a raw PSVariable-table origin: their remaining AST
+subtree is checked conservatively, while command expressions with no such
+origin remain valid. Scope-qualified direct receivers, `Get-Variable
+ExecutionContext`, and aliases or parameters derived from `$ExecutionContext`
+are tracked instead of being trusted as unrelated objects. The optional
+`$Path` default requires trusted `$scriptRoot` provenance and an exact
+`System.IO.Path.GetDirectoryName` call.
+
+Git-backed scanning requires the exact repository root. Each Git child receives
+a cloned, sanitized environment with isolated configuration and no inherited
+`GIT_*`, hook, filter, prompt, trace, repository, index, or object redirection.
+The exact root may use either a normal `.git` directory or the standard `.git`
+gitfile created for a linked worktree. In non-Git fallback, only exact lowercase
+`.git` is metadata on POSIX; an ordinary case-distinct `.GIT` remains visible.
+The scanner examines regular stage-0 index blobs and tracked worktree files as
+separate provenance sources, then requires byte-identical final raw index
+snapshots immediately before reporting. Conflicts, intent-to-add, gitlinks,
+symlinks/reparse points, path escape, missing or changing files, malformed Git
+output, and tracked `.private-markers.local` fail closed.
+
+Process-boundary bootstrap, helper, timeout/output, and temporary Git-isolation
+failures return exit code 2 with one fixed ASCII line on stderr. They do not
+echo repository, temporary, scanner, or helper paths to either standard stream.
+Invalid public timeout, deadline, and failure-probe test arguments are validated
+inside the script and use this same fixed response.
+
+On Windows the requested target is created suspended with only its three
+standard-stream handles, assigned to a kill-on-close Job, and resumed only
+after assignment. Synthetic failures before assignment and before resume prove
+that the target never runs, its PID disappears within a finite cleanup budget,
+and launch plus cleanup failures are preserved together. A direct native
+regression passes an already-expired launch allowance after Job assignment and
+proves that the final pre-`ResumeThread` deadline check removes the PID without
+executing target code. A failed Job-handle close retains ownership for retry,
+directly terminates the target as a fallback, and lets a later stop or
+`Dispose()` close the same handle. Successful launches transfer all three
+stream handles to the contained-process owner, whose wrapper `finally`
+explicitly disposes them.
+
+On POSIX, both an external `setsid` and the native `setsid(2)` fallback launch
+the same gated wrapper. External launch uses an option-free operand form shared
+by util-linux and BusyBox. The wrapper reports its PID, the parent verifies
+`getpgid(pid) == pid`, and only then releases the target. The caller deadline
+starts before environment preparation, process start, and this handshake;
+cleanup retains one separate finite allowance after that deadline expires.
+Tree termination, stream completion, and `finally` reuse the remaining portion
+of that same allowance. Wrapper completion is published by atomic rename and
+contains the actual payload exit code, so an external `setsid` implementation
+may fork and let the process tracked by `Process.Start()` exit without causing
+premature completion or a false pipe-leak result. One synthetic launcher
+exercises that normal early-fork path with a payload that outlives the stream
+completion window and exits nonzero. Another exits its tracked parent before
+publishing a delayed ready PID; the suite verifies that late recovery terminates
+the new process group without releasing target code.
+
+A scan-wide deadline plus process-stream, entry, file-byte, total-byte, line,
+match, finding, and diagnostic-output limits keep hostile inputs bounded.
+Candidate text includes normal source/document/config files, dotenv names,
+`.npmrc`, `.pem`, and `.key`; unlisted extensions are skipped without text
+decoding. Findings redact marker values and escape control/format characters.
 
 The pipe-test suite verifies behavior, not just exit codes: output bytes
 are captured raw (strict UTF-8 decode, JSON shape, field values) and side
@@ -420,7 +519,8 @@ internal absolute paths, or customer data.
 For local-only private markers, create an untracked `.private-markers.local`
 file with one literal marker per line, or set
 `CLAUDE_CODE_DEVLOG_HOOKS_PRIVATE_MARKERS` with newline-separated markers.
-The scanner reads these values but never prints matched content.
+The scanner reads these values but never prints matched content, and fails
+closed if `.private-markers.local` appears in the Git index.
 
 ## Security
 

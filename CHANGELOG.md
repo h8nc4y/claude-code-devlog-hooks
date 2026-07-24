@@ -8,6 +8,46 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Added
 
+- A shared bounded-process boundary for hermetic Git execution, binary-safe
+  standard streams, finite output/time budgets, and process-tree cleanup on
+  Windows and POSIX.
+- Full synthetic scanner regression coverage for index/worktree provenance,
+  fail-closed Git states, symlink/reparse/TOCTOU boundaries, environment
+  isolation, diagnostic redaction, and resource limits.
+- A single redacted exit-2 diagnostic for process-boundary bootstrap, helper,
+  timeout/output, and Git-isolation failures, without repository, temporary,
+  or helper paths in either standard stream.
+- Cross-baseline transport and cleanup regressions for a BOM-less Windows
+  `-File` child, native Git batch bytes, eager `.Invoke*()` AST classification,
+  direct/transitive function calls, scope prefixes, risky aliases,
+  Alias/Function/Variable provider mutation (including `Set-Content` and
+  `Set-Variable`), literal/dynamic dot and call operators, bare/aliased script
+  paths, dynamic ScriptBlock factories, stored ScriptBlock retrieval through
+  Variable providers, exact native Git command lookup, command-resolution-
+  independent bootstrap root/path provenance, target-helper shadowing,
+  function-object lookup, `-as` and static-member risky-class provenance,
+  deferred function/type definitions versus eager wrapper calls, definition-
+  local bootstrap lookalikes, and exact `SessionState.PSVariable` receiver/scope
+  handling across transparent receiver wrappers, with prior-local-binding
+  provenance for unqualified `[ref]` and fail-closed raw provenance through
+  unsupported command wrappers plus scoped/aliased/parameterized
+  `$ExecutionContext` receivers and `Get-Variable` recovery. Unreferenced local
+  scriptblocks remain dormant, while scope escape, inline/provider consumption,
+  persistent helper shadowing, and index/member pseudo-bindings fail closed;
+  optional path initialization now requires trusted `scriptRoot` provenance,
+  actual Job membership, failures before Job assignment/resume, and retained-
+  handle retry after a synthetic Job-close failure. The suite also covers
+  repeated success-path handle disposal, standard linked-worktree gitfiles,
+  POSIX case-sensitive `.git` exclusion with ordinary `.GIT` directory/leaf
+  scanning, option-free util-linux/BusyBox `setsid`, ready-PID process-group
+  verification, handshake-inclusive deadlines with one shared independent
+  cleanup allowance across tree/stream/final phases, and tracked-parent-exit
+  late-ready group recovery. Released wrappers now atomically publish payload
+  completion and exit code so an early-forking external `setsid` parent cannot
+  cause premature completion or a false pipe leak. A direct Windows native
+  regression also exercises the expired deadline check immediately before
+  `ResumeThread`. The suite retains fixed diagnostics for invalid public
+  test-seam arguments.
 - Claude Code plugin package:
   - `.claude-plugin/plugin.json` with optional `devlog_dir` and `devlog_lang`
     `userConfig`;
@@ -37,6 +77,14 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Hardened private-marker scanning to inspect regular stage-0 index blobs and
+  tracked worktree files independently, reject unsafe or changing repository
+  states, and preserve the existing repository URL and local marker contracts.
+- Expanded scanner CI to PowerShell 7 and Windows PowerShell 5.1 on Windows and
+  PowerShell 7 on Ubuntu 24.04, with exact readiness guards for job ownership,
+  workflow triggers, permissions, job IDs, runner, timeout, step shell, and
+  command. Active top-level and job-ID indentation is fully consumed, including
+  quoted/flow YAML keys.
 - Made plugin packaging the preferred future distribution path while retaining
   manual `settings.json` registration as a supported fallback, including
   PowerShell-only Windows hosts.
