@@ -12,7 +12,9 @@ permissions:
 jobs:
   validate:
     name: Validate hooks repository
-    timeout-minutes: 10
+    # plugin/hook testsに加えてscannerのPS7/PS5.1 full self-testを直列実行するため、
+    # hosted Windowsの実測余裕を含む有限budgetを明示する。
+    timeout-minutes: 25
     # windows-latest is intentional and left unpinned: this job only needs
     # pwsh + Windows PowerShell + git, so runner image migrations do not
     # affect it. Pin to a dated label only if a future step depends on
@@ -46,9 +48,13 @@ jobs:
         shell: pwsh
         run: ./scripts/test-hooks.ps1 -HookShell powershell
 
-      - name: Test private marker scan
+      - name: Test private marker scan (PowerShell 7)
         shell: pwsh
         run: ./scripts/test-scan-private-markers.ps1
+
+      - name: Test private marker scan (Windows PowerShell 5.1)
+        shell: powershell
+        run: .\scripts\test-scan-private-markers.ps1
 
       - name: Scan for private markers
         shell: pwsh
@@ -64,11 +70,15 @@ jobs:
 
   bash-hooks:
     name: Test Bash hooks on Ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Validate OSS readiness on Ubuntu
+        shell: pwsh
+        run: ./scripts/validate-oss-readiness.ps1
 
       - name: Check Bash syntax
         shell: bash
@@ -85,3 +95,15 @@ jobs:
       - name: Test hooks (shared pipe tests plus POSIX path cases)
         shell: pwsh
         run: ./scripts/test-hooks.ps1 -HookShell bash
+
+      - name: Test private marker scan (PowerShell 7 on Ubuntu)
+        shell: pwsh
+        run: ./scripts/test-scan-private-markers.ps1
+
+      - name: Scan for private markers on Ubuntu
+        shell: pwsh
+        run: ./scripts/scan-private-markers.ps1
+
+      - name: Check whitespace
+        shell: pwsh
+        run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD

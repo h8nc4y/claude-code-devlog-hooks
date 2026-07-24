@@ -19,7 +19,9 @@ verify.
 - Use synthetic placeholders such as `C:/path/to/devlog`,
   `<owner>/<name>`, and `<session-id>` in examples.
 - Put personal or organization-specific scan markers in an untracked
-  `.private-markers.local` file, not in repository source.
+  `.private-markers.local` file, not in repository source. The scanner fails
+  closed if that file appears in the Git index and never prints matched marker
+  values.
 
 ## Hook Invariants (Do Not Break)
 
@@ -106,7 +108,69 @@ Windows PowerShell can host the PowerShell scripts too
 (`powershell -NoProfile -ExecutionPolicy Bypass -File ...`). On macOS or
 Linux, install PowerShell 7 (`pwsh`) and skip the `-HookShell powershell`
 run — CI covers it on `windows-latest`. CI runs Bash behavior and syntax on
-`ubuntu-latest`.
+Ubuntu 24.04.
+
+The scanner self-test also runs under both Windows PowerShell hosts and under
+PowerShell 7 on Ubuntu 24.04. It uses only disposable synthetic repositories
+and local processes. It verifies the sanitized Git child environment, binary
+standard streams, index/worktree provenance, final raw index equality,
+fail-closed index states, process-tree cleanup, and bounded diagnostics without
+contacting an external service or using real credentials. A lower-only test
+deadline also proves that an expired scan cannot emit a success result; callers
+cannot extend the production 120-second ceiling. Bootstrap, helper,
+timeout/output, and isolated-directory failures must emit only the fixed
+process-boundary stderr line with exit code 2 and no absolute local path.
+Invalid timeout, deadline, or process-boundary test-seam arguments use that same
+body-level fixed diagnostic instead of PowerShell parameter-binding output.
+
+The first bounded-process call is guarded structurally with a shared PowerShell
+AST policy. It follows direct/transitive local-function calls, scope prefixes,
+risky aliases, function-object lookup, stored scriptblocks, and eager
+`.Invoke*()` paths. Alias/Function/Variable provider mutation, dynamic dot
+sourcing, every other literal/dynamic dot or call operator, bare/aliased script
+paths, dynamic or provider-recovered ScriptBlocks, risky
+`Set-Content`/`Set-Variable`, target-helper shadowing, `-as` conversion,
+static-member risky-type provenance, and unresolved execution paths fail
+closed. Only two top-level bootstrap dot sources built from one exact
+`System.IO.Path` root/path provenance and the literal
+`Get-Command git -CommandType Application` lookup remain allowed. Windows
+fixtures also distinguish dormant function/type bodies from eager calls:
+function-local assignments, `[ref]` values with a guaranteed prior local
+binding, and unrelated object
+`GetValue`/`SetValue` methods remain valid, while `script:`/`global:` mutation,
+mutable `SessionState.PSVariable.Get` handles, and PSVariable-table aliases fail
+closed when their wrapper is called before the bootstrap. Parentheses, casts,
+subexpressions, and single-element array indexing do not hide that table.
+Unsupported command wrappers retain any raw PSVariable-table provenance found
+in their AST subtree; safe command expressions without that provenance stay
+allowed. Scope-qualified `$ExecutionContext` receivers and aliases/parameters
+derived from that automatic variable, including `Get-Variable`, must not bypass
+the receiver check. Keep unused local scriptblocks dormant, but reject scope
+escape, inline consumption, provider recovery, later use, and persistent
+script/global helper shadowing. Index/member mutation is not a prior local
+binding for `[ref]`. The optional `$Path` fallback must retain its exact
+`$PSScriptRoot`/`System.IO.Path.GetDirectoryName` provenance.
+Windows fixtures cover exact BOM-less `-File` and native Git bytes, actual Job
+membership,
+bounded cleanup for failures before assignment/resume, and retained-handle
+retry plus direct termination after a synthetic Job-close failure. Repeated
+successful launches must also return all transferred standard-stream handles.
+Keep the direct native zero-allowance fixture: it must reach the final
+pre-`ResumeThread` deadline check after Job assignment, remove the recorded PID,
+and leave the target sentinel absent.
+POSIX fixtures cover the default external `setsid`, the native fallback, and a
+BusyBox-compatible shim. Each must report a PID that is an actual process-group
+leader before release, and a delayed handshake must consume the caller deadline
+while cleanup still receives one independent finite allowance shared by tree,
+stream, and final waits. The late-ready fixture must let its tracked parent exit
+before the delayed group appears, then prove that the recovered PID terminates
+without target release. Retain a separate normal early-fork fixture whose
+tracked launcher exits immediately: the payload must outlive the stream
+completion window, publish an atomic completion record, and preserve its
+nonzero exit code without a false pipe leak.
+Git fixtures include a standard linked worktree whose root `.git` is a gitfile;
+on POSIX, only exact lowercase `.git` is metadata and ordinary `.GIT` content
+remains scannable.
 
 ## Pull Request Expectations
 

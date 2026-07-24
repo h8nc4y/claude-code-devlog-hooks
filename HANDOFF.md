@@ -1,66 +1,91 @@
 # Handoff
 
-## Current state
+## Current goal
 
-Issue #3 is complete. PR #5 merged into `main` as `1712d84` on 2026-07-24
-JST. The plugin package, manual fallback, Class L documents, tests, and CI are
-all synchronized.
+`fix/hermetic-private-marker-scan` で private-marker scanner を fail-closed・
+hermetic・bounded に更新中。030 固有の GitHub URL allowlist、
+`CLAUDE_CODE_DEVLOG_HOOKS_PRIVATE_MARKERS`、plugin/hook/Bash CI 契約は維持する。
 
 ## Delivered
 
-- `.claude-plugin/plugin.json` exposes optional `devlog_dir` and `devlog_lang`.
-- `hooks/hooks.json` registers exactly one Bash-shell handler for
-  `SessionStart`, `UserPromptSubmit`, and `Stop`.
-- The root `SKILL.md` is auto-discovered without a competing `skills/` tree.
-- `hooks/devlog-plugin-launcher.sh` maps official
-  `CLAUDE_PLUGIN_OPTION_*` exports to existing hook configuration and executes
-  exactly one PowerShell or Bash implementation.
-- Git Bash converts the fixed PowerShell target with `cygpath -m --`.
-  Missing or failed conversion terminates with a fixed, non-sensitive
-  diagnostic.
-- Both direct shell entrypoints retain Git index mode `100755`.
+- stage-0 index blob と tracked worktree を別 provenance として検査し、最終
+  raw index snapshot 一致を必須化。
+- Git child の全 `GIT_*`、config、hook、filter、prompt、trace、repository /
+  index / object redirect を隔離。subdirectory、conflict、intent-to-add、
+  gitlink、symlink/reparse、path escape、変化中 file は fail closed。
+- scan-wide deadline と process/file/byte/line/match/finding/UTF-8 output 上限を追加。
+- helper欠落/例外、timeout/output、Git isolation create/removeを固定ASCII stderr
+  1行 + exit 2へ統一し、repo/temp/scanner/helper絶対pathを出力・例外へ出さない。
+- Windows は suspended direct target → stdio handle allowlist → Job assign →
+  resume を維持。assign/resume failure の terminate/close/wait と error 集約を
+  synthetic PID/sentinel で検証。Job close failure はhandleを保持してdirect
+  terminateし、後続Stop/Disposeで同じhandleをretryする。success 40回後の
+  GCでstdio handleが線形増加しないことも実測する。Job割当後に期限0をnative
+  `Start`へ直接渡し、ResumeThread直前のdeadline防御、PID消失、target未実行も固定。
+- BOM-less `-File` binary transport、native Git batch bytes、`.Invoke*()`、
+  direct/transitive function、scope prefix、risky alias、function object の
+  AST 順序、target helper shadow、Invoke-Command/InvokeScript、dynamic dot、
+  Alias/Function/Variable provider mutation（Set-Content/Set-Variableを含む）、
+  risky class construction/conversion（`-as`/static member provenanceを含む）、
+  stored ScriptBlock引数、compound Invoke receiver、POSIX process group/errno
+  の regression を追加。dynamic New-Item provider pathのFile/Directory免除は削除。
+- public timeout/deadline/probe の invalid binding をbody内validationへ移し、
+  固定stderr 1行 + exit 2へ統一。標準linked worktree gitfileとPOSIX `.GIT`
+  directory/leafのcase-sensitive fallbackをregression化。
+- self-test/readiness は同じ pure AST policy を使い、dynamic 解決は fail
+  closed。literal native `Get-Command git -CommandType Application` は許可。
+- bootstrap以外のliteral/dynamic `.` / `&` とfunction/type wrapperをfail
+  closed化。許可する2 dot-sourceはsource直下の単一`$root`代入と
+  `System.IO.Path` static callによるroot/path provenanceへ固定し、
+  `Join-Path` function/alias shadowと`$root`再代入の迂回を回帰化。
+- bare/alias経由script path、tuple/`PSVariable`/`[ref]` mutation、stored
+  ScriptBlockのVariable provider回収、`ScriptBlock.Create` /
+  `NewScriptBlock` / parser `GetScriptBlock`、ExternalScript lookupも拒否。
+  `Get-Command git -CommandType Application`だけをnative lookup正例に固定。
+- dormant function/type本文はeager処理から除外。実際に先行呼出しされるwrapperでは
+  `script:`/`global:` mutation、mutable `PSVariable.Get` handle、PSVariable
+  table aliasを拒否。括弧/cast/subexpression/単要素array indexもunwrapする。
+  unsupported command wrapper内にraw table provenanceが残る場合もsubtreeを
+  fail closedに追跡し、provenanceの無いsafe command expressionは許可する。
+  scoped receiver、`Get-Variable ExecutionContext`、alias/parameter経由も追跡する。
+  function-local代入、先行local bindingが保証された`[ref]`、無関係なobjectの
+  `GetValue`/`SetValue`は許可するscope/receiver回帰を追加。未参照local
+  ScriptBlockだけをdormantとし、scope escape、inline/provider消費、後続参照、
+  script/global helper shadowを拒否。index/member mutationは`[ref]`のlocal
+  bindingに数えず、`$Path` fallbackはtrusted `$scriptRoot` +
+  `System.IO.Path.GetDirectoryName`へ固定。
+- POSIX はexternal/nativeとも同じready/release wrapperを使い、option-free
+  `setsid` operand、ready PIDの`getpgid(pid) == pid`確認後にだけtargetを解放。
+  deadlineはprep/start/handshake前から計測し、tree/stream/final cleanupは
+  1つの独立した有限猶予の残量を共有する。external forkのlate ready PIDも
+  同じ総budget内で回収する。release後はwrapperが実payloadの完了/exit codeを
+  atomic sidecarへ公開し、tracked parent先行exitを完了と誤認しない。GNU/default、
+  forced native、BusyBox互換shim、normal early-fork、delayed handshake、
+  timeout後のlate-ready回収を回帰化。
+- Actions の全 active top-level/job ID（quoted/flow key を含む）、trigger、
+  permissions、runner、timeout、step shell/run を exact validation。
+  Windows PS7/PS5.1 と Ubuntu 24.04 を対象化。
 
-## Verification
+## Verified locally
 
-- Independent review: P1/P2/P3 = 0.
-- Merged `main` GitHub Actions run `30021258350`: Windows and Ubuntu jobs
-  passed.
-- `claude plugin validate . --strict`: passed on Claude Code 2.1.207.
-- Plugin contract: passed on PowerShell 7 and Windows PowerShell 5.1.
-- Launcher: 13/13 passed on Git for Windows Bash and WSL Bash 5.3.9.
-- Existing hook pipe tests: 30/30 passed on PowerShell 7.6.2, Windows
-  PowerShell 5.1.26100.8894, and WSL Bash 5.3.9.
-- OSS readiness, Git Bash/WSL syntax, marker scans, Gitleaks directory and
-  Git-history scans, Semgrep (`p/default`, 42 tracked files, 0 findings), and
-  `git diff --check`: passed on merged `main`.
+- scanner full self-test: PowerShell 7 / Windows PowerShell 5.1 / Ubuntu
+  PowerShell 7 の最終 follow-up treeでPASS。
+- readiness: PS7 / PS5.1 / Ubuntu PASS。workflow mutationと first-call
+  mutation（wrapper/alias/function objectを含む）も拒否。
+- plugin contract PS7/PS5.1、launcher 13 cases、hook pipe tests
+  PS7/PS5.1各30 cases・Windows Bash 30 cases・Ubuntu Bash 33 cases、
+  Bash syntax、scanner通常scan PS7/PS5.1/Ubuntu: PASS。
+- `claude plugin validate . --strict`: PASS。
+- AST/POSIX/Windows deadlineの独立read-only再review: CLEAN。
+- Gitleaks directory / history（11 commits）: 0 findings。
+  Semgrep `p/default`（44 files / 88 rules）: 0 findings / 0 errors。
 
-## Decisions and lessons
+## Remaining before merge
 
-- Official Claude Code plugin/hook docs plus the strict local validator are the
-  schema source of truth.
-- `shell: "bash"` uses Claude Code's Git Bash selection on native Windows and
-  avoids accidentally resolving WSL `bash.exe` from a generic `PATH`.
-- Config priority is non-empty plugin option, legacy environment, then hook
-  default. Configuration never selects an executable or script.
-- Launcher tests keep a shim-only `PATH`; required capture tools use explicit
-  absolute paths. Git Bash fixture paths are compared as full long native paths
-  via `cygpath -m -l`, covering virtual `/tmp` and 8.3 aliases without reducing
-  the assertion to a basename.
-- Manual `settings.json` registration remains the supported fallback for
-  PowerShell-only Windows hosts.
+- commit/push/PR、GitHub Actions、merge 後 main/cleanup は親taskが引き取る。
 
-## Unverified by scope
+## External gates / unverified
 
-- Live plugin installation in a Claude Code session
-- Marketplace publication
-- Real Vault writes
-- macOS hardware and Bash 3.2 runtime
-
-These remain explicit human/environment follow-ups. No new login or credential
-entry, real Vault or customer-data transmission, marketplace action, or paid
-operation was performed.
-
-## Next step
-
-No required issue #3 work remains. For the next development loop, inspect the
-current open issues and repository state before selecting a new task.
+- live Claude Code plugin install、marketplace 公開、実 Vault 書込み、
+  macOS hardware / Bash 3.2 は未確認。login、credential、実データ、公開、
+  paid operation は実施しない。
