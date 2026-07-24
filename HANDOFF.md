@@ -23,7 +23,8 @@ all synchronized.
 ## Verification
 
 - Independent review: P1/P2/P3 = 0.
-- Final GitHub Actions run `30020457186`: Windows and Ubuntu jobs passed.
+- Merged `main` GitHub Actions run `30021258350`: Windows and Ubuntu jobs
+  passed.
 - `claude plugin validate . --strict`: passed on Claude Code 2.1.207.
 - Plugin contract: passed on PowerShell 7 and Windows PowerShell 5.1.
 - Launcher: 13/13 passed on Git for Windows Bash and WSL Bash 5.3.9.
