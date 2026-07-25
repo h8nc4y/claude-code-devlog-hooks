@@ -2,11 +2,9 @@
 
 ## Current goal
 
-private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8で
-`main`へ統合済み。030 固有の GitHub URL allowlist、
-`CLAUDE_CODE_DEVLOG_HOOKS_PRIVATE_MARKERS`、plugin/hook/Bash CI 契約も維持した。
-follow-upではraw PSVariable tableを静的Get/Set系の直接receiverとしてだけ許可し、
-return / assignment / command argument / multi-element pipeline escapeを閉じた。
+private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8、
+PSVariable receiver follow-upはPR #10で`main`へ統合済み。本follow-upでは
+全production regexへ有限MatchTimeoutを付け、各matchを最大250 msへ有限化する。
 
 ## Delivered
 
@@ -16,6 +14,12 @@ return / assignment / command argument / multi-element pipeline escapeを閉じ�
   index / object redirect を隔離。subdirectory、conflict、intent-to-add、
   gitlink、symlink/reparse、path escape、変化中 file は fail closed。
 - scan-wide deadline と process/file/byte/line/match/finding/UTF-8 output 上限を追加。
+  全production regexはPS5.1互換の3引数constructorで最大250 msの
+  MatchTimeoutを持つ。timeout診断はGit cleanup後まで遅延し、通常は固定
+  `regex-timeout`、cleanupも失敗した場合は`process-boundary`だけをstderr
+  1行 + exit 2で返す。入力/patternは再掲しない。readiness AST gateは
+  operator/cast/短縮型/static API/New-Object/switch/Select-Stringとtimeout由来の
+  mutationを拒否し、near-limit安全入力とcleanup競合も回帰化。
 - helper欠落/例外、timeout/output、Git isolation create/removeを固定ASCII stderr
   1行 + exit 2へ統一し、repo/temp/scanner/helper絶対pathを出力・例外へ出さない。
 - Windows は suspended direct target → stdio handle allowlist → Job assign →
@@ -81,6 +85,11 @@ return / assignment / command argument / multi-element pipeline escapeを閉じ�
 - PSVariable return-wrapper follow-up: readiness とfull scanner self-testを
   PS7 / PS5.1 / Ubuntu (`--init` container)でPASS。PID 1がreapしないcontainer
   では停止済みchildがzombie化することも切り分け済み。
+- regex MatchTimeout follow-up: 1,000,000文字のno-match入力が修正前は外部
+  15.129秒上限を超過し、最終修正後はPS7 2.755秒 / PS5.1 1.462秒で固定
+  exit 2へ収束。readinessとfull scanner self-testをPS7 201.2秒 /
+  PS5.1 138.0秒 / Ubuntu 249.3秒（read-only・`--network none`・`--init`
+  container）でPASS。
 - readiness: PS7 / PS5.1 / Ubuntu PASS。workflow mutationと first-call
   mutation（wrapper/alias/function objectを含む）も拒否。
 - plugin contract PS7/PS5.1、launcher 13 cases、hook pipe tests
@@ -96,8 +105,12 @@ return / assignment / command argument / multi-element pipeline escapeを閉じ�
 ## Integration state
 
 - PR #8はsquash merge済み（merge `a74f34ed8457797384a0b79863644157ea94991e`）。
-- PSVariable receiver follow-up のintegration recordは PR #10
-  （initial commit `c9db040723c6f5579b5cb960d2ffb7b771885559`）。
+- PR #10はsquash merge済み（merge
+  `0039d8441a211929072dd19edc89282204f3e3ee`、initial commit
+  `c9db040723c6f5579b5cb960d2ffb7b771885559`）。
+- regex MatchTimeout follow-up は `fix/regex-match-timeout` の最終freezeで
+  local 3環境検証と独立review CLEANまで完了。GitHub integration recordは
+  PR #11とし、state／merge commit／Actions evidenceはGitHub現況を正とする。
 
 ## External gates / unverified
 

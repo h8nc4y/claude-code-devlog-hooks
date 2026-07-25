@@ -507,6 +507,11 @@ the new process group without releasing target code.
 
 A scan-wide deadline plus process-stream, entry, file-byte, total-byte, line,
 match, finding, and diagnostic-output limits keep hostile inputs bounded.
+Every production regular expression also has a finite .NET match timeout,
+capped at 250 ms and clamped to the configured scan deadline. Its diagnostic is
+held until Git cleanup finishes: a regex timeout alone returns one fixed
+redacted `regex-timeout` line and exit code 2, while a concurrent cleanup
+failure returns one `process-boundary` line instead of emitting both.
 Candidate text includes normal source/document/config files, dotenv names,
 `.npmrc`, `.pem`, and `.key`; unlisted extensions are skipped without text
 decoding. Findings redact marker values and escape control/format characters.

@@ -2349,12 +2349,14 @@ function Assert-FixedProcessBoundaryFailure {
     param(
         [pscustomobject]$Result,
         [string]$Context,
-        [string[]]$ForbiddenPaths
+        [string[]]$ForbiddenPaths,
+        [ValidateSet('process-boundary', 'regex-timeout')]
+        [string]$Integrity = 'process-boundary'
     )
 
     $expected = (
         'Private marker scan failed closed ' +
-        '(integrity: process-boundary).'
+        "(integrity: $Integrity)."
     )
     $expectedStderrBytes = [System.Text.UTF8Encoding]::new($false).GetBytes(
         $expected + [Environment]::NewLine
@@ -4663,6 +4665,75 @@ Add-Type `
         Add-Failure "Expected an overlong line to fail before unbounded line scanning. Output: $($overlongLineResult.Output.Trim())"
     }
 
+    # 上限近傍でもregex開始候補を持たない安全な単一行はtimeout扱いにしない。
+    # adversarial negativeだけでなく、false-positive側の対照も同じdeadlineで固定する。
+    $regexSafeNearLimitRoot = Join-Path $tempRoot 'regex-safe-near-limit'
+    New-Item -ItemType Directory -Path $regexSafeNearLimitRoot | Out-Null
+    $regexSafeNearLimitPath =
+        Join-Path $regexSafeNearLimitRoot 'safe-near-limit.txt'
+    [System.IO.File]::WriteAllText(
+        $regexSafeNearLimitPath,
+        [string]::new([char]' ', 900000),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $regexSafeNearLimitClock = [System.Diagnostics.Stopwatch]::StartNew()
+    $regexSafeNearLimitResult = Invoke-Scanner `
+        -ScanPath $regexSafeNearLimitRoot `
+        -EnvironmentOverrides @{ PATH = $emptyCommandPath } `
+        -AdditionalArguments @('-ScanDeadlineMilliseconds', '5000')
+    $regexSafeNearLimitClock.Stop()
+    if ($regexSafeNearLimitResult.ExitCode -ne 0 -or
+        $regexSafeNearLimitResult.TimedOut -or
+        -not $regexSafeNearLimitResult.StreamsCompleted -or
+        -not $regexSafeNearLimitResult.TreeStopped -or
+        $regexSafeNearLimitResult.Output -notmatch
+            'Private marker scan passed' -or
+        $regexSafeNearLimitClock.ElapsedMilliseconds -gt 10000) {
+        Add-Failure (
+            'Expected a safe near-limit line to pass inside the scanner ' +
+            "deadline. Elapsed: " +
+            "$($regexSafeNearLimitClock.ElapsedMilliseconds) ms."
+        )
+    }
+
+    # 1MiB line上限を下回るno-matchでも、email regexは開始位置ごとの再走査で
+    # scan-wide deadlineを占有できる。regex自身の有限timeoutと固定診断を実測する。
+    $regexTimeoutRoot = Join-Path $tempRoot 'regex-match-timeout'
+    New-Item -ItemType Directory -Path $regexTimeoutRoot | Out-Null
+    $regexTimeoutPath = Join-Path $regexTimeoutRoot 'adversarial.txt'
+    [System.IO.File]::WriteAllText(
+        $regexTimeoutPath,
+        ('a.' * 500000),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $regexTimeoutClock = [System.Diagnostics.Stopwatch]::StartNew()
+    $regexTimeoutResult = Invoke-Scanner `
+        -ScanPath $regexTimeoutRoot `
+        -EnvironmentOverrides @{ PATH = $emptyCommandPath } `
+        -AdditionalArguments @('-ScanDeadlineMilliseconds', '5000')
+    $regexTimeoutClock.Stop()
+    Assert-FixedProcessBoundaryFailure `
+        -Result $regexTimeoutResult `
+        -Context 'Regex match timeout' `
+        -Integrity 'regex-timeout' `
+        -ForbiddenPaths @(
+            $root,
+            $tempRoot,
+            $regexTimeoutRoot,
+            $regexTimeoutPath,
+            $scanner,
+            $processBoundary
+        )
+    if ($regexTimeoutResult.TimedOut -or
+        -not $regexTimeoutResult.StreamsCompleted -or
+        -not $regexTimeoutResult.TreeStopped -or
+        $regexTimeoutClock.ElapsedMilliseconds -gt 10000) {
+        Add-Failure (
+            'Expected adversarial regex no-match to fail inside the scanner ' +
+            "deadline. Elapsed: $($regexTimeoutClock.ElapsedMilliseconds) ms."
+        )
+    }
+
     # finding は file 単位と scan 全体の双方で上限を持つ。
     $perFileFindingRoot = Join-Path $tempRoot 'per-file-finding-limit'
     New-Item -ItemType Directory -Path $perFileFindingRoot | Out-Null
@@ -4903,6 +4974,73 @@ Add-Type `
                     Add-Failure 'Expected linked-worktree fixture cleanup to succeed.'
                 }
             }
+        }
+    }
+
+    # regex timeoutとGit isolation cleanup failureを同時に起こし、先行stderrと
+    # finally由来stderrが二重化しないことをgit-tracked経路で固定する。
+    $trackedRegexTimeoutName = 'regex-timeout-cleanup.txt'
+    $trackedRegexTimeoutPath =
+        Join-Path $trackedRoot $trackedRegexTimeoutName
+    [System.IO.File]::WriteAllText(
+        $trackedRegexTimeoutPath,
+        ('a.' * 500000),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $trackedRegexAdd = Invoke-HermeticGit `
+        -WorkingDirectory $trackedRoot `
+        -Arguments @('add', '--', $trackedRegexTimeoutName) `
+        -IsolationRoot $fixtureIsolationRoot
+    try {
+        if ($trackedRegexAdd.ExitCode -ne 0 -or
+            $trackedRegexAdd.TimedOut -or
+            -not $trackedRegexAdd.TreeStopped) {
+            Add-Failure (
+                'Expected tracked regex-timeout fixture staging to succeed.'
+            )
+        } else {
+            $trackedRegexCleanupFailure = Invoke-Scanner `
+                -ScanPath $trackedRoot `
+                -AdditionalArguments @(
+                    '-ScanDeadlineMilliseconds',
+                    '5000',
+                    '-ProcessBoundaryFailureProbe',
+                    'isolation-remove'
+                )
+            Assert-FixedProcessBoundaryFailure `
+                -Result $trackedRegexCleanupFailure `
+                -Context 'Regex timeout with isolation cleanup failure' `
+                -ForbiddenPaths @(
+                    $root,
+                    $tempRoot,
+                    $trackedRoot,
+                    $trackedRegexTimeoutPath,
+                    $scanner,
+                    $processBoundary
+                )
+        }
+    }
+    finally {
+        $trackedRegexRemove = Invoke-HermeticGit `
+            -WorkingDirectory $trackedRoot `
+            -Arguments @(
+                'rm',
+                '--cached',
+                '--force',
+                '--',
+                $trackedRegexTimeoutName
+            ) `
+            -IsolationRoot $fixtureIsolationRoot
+        if ($trackedRegexAdd.ExitCode -eq 0 -and
+            ($trackedRegexRemove.ExitCode -ne 0 -or
+                $trackedRegexRemove.TimedOut -or
+                -not $trackedRegexRemove.TreeStopped)) {
+            Add-Failure (
+                'Expected tracked regex-timeout fixture index cleanup to succeed.'
+            )
+        }
+        if (Test-Path -LiteralPath $trackedRegexTimeoutPath -PathType Leaf) {
+            Remove-Item -LiteralPath $trackedRegexTimeoutPath -Force
         }
     }
 
