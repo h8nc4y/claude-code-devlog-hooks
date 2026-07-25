@@ -1032,6 +1032,135 @@ $binaryPipeResult = Invoke-PrivateMarkerProcess
 '@
         },
         [pscustomobject]@{
+            Name = 'execution-context-psvariable-return-wrapper-before'
+            Expected = $false
+            Source = @'
+function Get-VariableTable {
+    return $ExecutionContext.SessionState.PSVariable
+}
+function Set-EarlyRoot {
+    (Get-VariableTable).Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-array-getvalue-return-wrapper-before'
+            Expected = $false
+            Source = @'
+function Get-VariableTable {
+    return @(
+        $ExecutionContext.SessionState.PSVariable
+    ).GetValue(0)
+}
+function Set-EarlyRoot {
+    (Get-VariableTable).Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-cast-getvalue-return-wrapper-before'
+            Expected = $false
+            Source = @'
+function Get-VariableTable {
+    return (
+        [object[]]$ExecutionContext.SessionState.PSVariable
+    ).GetValue(0)
+}
+function Set-EarlyRoot {
+    (Get-VariableTable).Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-command-argument-before'
+            Expected = $false
+            Source = @'
+function Pass-VariableTable {
+    param($Table)
+    return $Table
+}
+function Set-EarlyRoot {
+    (Pass-VariableTable $ExecutionContext.SessionState.PSVariable).Set(
+        'script:root',
+        './synthetic-root'
+    )
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-pipeline-before'
+            Expected = $false
+            Source = @'
+function Pass-VariableTable {
+    process {
+        return $_
+    }
+}
+function Set-EarlyRoot {
+    ($ExecutionContext.SessionState.PSVariable |
+        Pass-VariableTable).Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-assignment-before'
+            Expected = $false
+            Source = @'
+function Set-EarlyRoot {
+    $variableTable = $ExecutionContext.SessionState.PSVariable
+    $variableTable.Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
             Name = 'wrapped-aliased-psvariable-script-root-bootstrap-dot-source'
             Expected = $false
             Source = @'
@@ -2060,6 +2189,97 @@ $binaryPipeResult = Invoke-PrivateMarkerProcess
             Add-Failure "First-invocation validator regression failed: $($case.Name)."
         }
     }
+
+    # generic ExecutionContext除外はconsumerの形だけを判定する。直接Get/Setは
+    # 後段の変数名検査へ渡し、returnされたtableはその場でfail closedにする。
+    $receiverCases = @(
+        [pscustomobject]@{
+            Name = 'direct-getvalue-receiver'
+            Expected = $true
+            Source = '$ExecutionContext.SessionState.PSVariable.GetValue(''localOnly'')'
+        },
+        [pscustomobject]@{
+            Name = 'direct-set-receiver'
+            Expected = $true
+            Source = '$ExecutionContext.SessionState.PSVariable.Set(''localOnly'', ''value'')'
+        },
+        [pscustomobject]@{
+            Name = 'indexed-array-set-receiver'
+            Expected = $true
+            Source = '@($ExecutionContext.SessionState.PSVariable)[0].Set(''localOnly'', ''value'')'
+        },
+        [pscustomobject]@{
+            Name = 'array-getvalue-is-not-direct-receiver'
+            Expected = $false
+            Source = '@($ExecutionContext.SessionState.PSVariable).GetValue(0)'
+        },
+        [pscustomobject]@{
+            Name = 'cast-getvalue-is-not-direct-receiver'
+            Expected = $false
+            Source = '([object[]]$ExecutionContext.SessionState.PSVariable).GetValue(0)'
+        },
+        [pscustomobject]@{
+            Name = 'return-wrapper-escape'
+            Expected = $false
+            Source = 'return $ExecutionContext.SessionState.PSVariable'
+        }
+    )
+    foreach ($receiverCase in $receiverCases) {
+        $receiverTokens = $null
+        $receiverErrors = $null
+        $receiverAst = [System.Management.Automation.Language.Parser]::ParseInput(
+            $receiverCase.Source,
+            [ref]$receiverTokens,
+            [ref]$receiverErrors
+        )
+        $executionContextReferences = @(
+            $receiverAst.FindAll(
+                {
+                    param($node)
+                    return $node -is
+                            [System.Management.Automation.Language.VariableExpressionAst] -and
+                        $node.VariablePath.UserPath -eq 'ExecutionContext'
+                },
+                $true
+            )
+        )
+        if ($receiverErrors.Count -ne 0 -or
+            $executionContextReferences.Count -ne 1) {
+            Add-Failure "Direct PSVariable receiver fixture parse failed: $($receiverCase.Name)."
+            continue
+        }
+        $actualReceiver = (
+            Test-PrivateMarkerExecutionContextReferenceIsDirectPsVariableReceiver `
+                -Variable $executionContextReferences[0]
+        )
+        if ($actualReceiver -ne $receiverCase.Expected) {
+            Add-Failure "Direct PSVariable receiver regression failed: $($receiverCase.Name)."
+        }
+    }
+}
+
+function Assert-ReturnedPsVariableTableMutatesScriptScope {
+    # AST validatorが閉じるreturn-wrapper経路は実際にscript scopeを書き換える。
+    # PS5.1/PS7の双方で挙動を実測し、fixtureが架空の脅威へ退行しないよう固定する。
+    $originalRoot = $script:root
+    $proofRoot = 'private-marker-return-wrapper-proof'
+    try {
+        function Get-ProofVariableTable {
+            return $ExecutionContext.SessionState.PSVariable
+        }
+        function Set-ProofScriptRoot {
+            (Get-ProofVariableTable).Set('script:root', $proofRoot)
+        }
+
+        Set-ProofScriptRoot
+        if ($script:root -cne $proofRoot) {
+            Add-Failure 'Expected returned PSVariable table to mutate script:root at runtime.'
+        }
+    }
+    finally {
+        # self-test後段の実repo scanへproof値を漏らさない。
+        $script:root = $originalRoot
+    }
 }
 
 function Assert-FirstPrivateMarkerProcessInvocationIsBinaryTransport {
@@ -2326,6 +2546,10 @@ exit 37
             -Actual $binaryPipeResult.StandardErrorBytes)) {
         Add-Failure 'Expected the first BOM-less -File child to preserve binary stdin/stdout/stderr, EOF, and exit code exactly.'
     }
+
+    # 初回bounded helper成立後にだけ危険なruntime proofを動かす。これ以前へ
+    # 移動するとself-test自身が検証対象のfirst-invocation policyへ違反する。
+    Assert-ReturnedPsVariableTableMutatesScriptScope
 
     # PowerShell childはUTF-8 preambleを自身のinputとして受理し得るため、
     # native Git batch protocolでもstdin/stdoutの完全一致とcaller encoding不変を測る。

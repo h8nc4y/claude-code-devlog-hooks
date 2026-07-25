@@ -687,13 +687,19 @@ function Test-PrivateMarkerExecutionContextReferenceIsDirectPsVariableReceiver {
             -Name $Variable.VariablePath.UserPath) -ine 'ExecutionContext') {
         return $false
     }
+
+    # raw tableを見つけただけでは安全とみなさない。return、assignment、
+    # command argument、複数要素pipelineへ渡すと別wrapperが後でSetできるため、
+    # まずexactなSessionState.PSVariable chainを特定する。
+    $rawPsVariable = $null
     $ancestor = $Variable.Parent
     for ($depth = 0; $depth -lt 16 -and $null -ne $ancestor; $depth++) {
         if ($ancestor -is
                 [System.Management.Automation.Language.MemberExpressionAst] -and
             (Test-PrivateMarkerAstIsRawSessionStatePsVariable `
                 -Ast $ancestor)) {
-            return $true
+            $rawPsVariable = $ancestor
+            break
         }
         if ($ancestor -is
                 [System.Management.Automation.Language.StatementAst] -or
@@ -704,6 +710,117 @@ function Test-PrivateMarkerExecutionContextReferenceIsDirectPsVariableReceiver {
             break
         }
         $ancestor = $ancestor.Parent
+    }
+    if ($null -eq $rawPsVariable) {
+        return $false
+    }
+
+    # object identityを保つ唯一childのwrapperだけを上へ辿る。最終consumerが
+    # exact Get/GetValue/Set/SetValue receiverなら、protected名かどうかは
+    # Test-PrivateMarkerMemberReads/WritesVariableへ委ねられる。それ以外へ
+    # tableがescapeする経路はgeneric ExecutionContext riskとして拒否する。
+    $current = $rawPsVariable
+    for ($depth = 0; $depth -lt 128; $depth++) {
+        $parent = $current.Parent
+        if ($null -eq $parent) {
+            return $false
+        }
+        if ($parent -is
+            [System.Management.Automation.Language.InvokeMemberExpressionAst]) {
+            return [object]::ReferenceEquals(
+                    $parent.Expression,
+                    $current
+                ) -and
+                $parent.Member -is
+                    [System.Management.Automation.Language.StringConstantExpressionAst] -and
+                $parent.Member.Value -imatch '^(?:Get|GetValue|Set|SetValue)$'
+        }
+
+        # ConvertExpressionは型変換でobject identityを変え得るためdirect receiver
+        # には数えない。taint保持側のunwrapとは責務が異なる。
+        $transparent = $false
+        if ($parent -is
+            [System.Management.Automation.Language.CommandExpressionAst]) {
+            $transparent = [object]::ReferenceEquals(
+                $parent.Expression,
+                $current
+            )
+        }
+        elseif ($parent -is
+            [System.Management.Automation.Language.ParenExpressionAst]) {
+            $transparent = [object]::ReferenceEquals(
+                $parent.Pipeline,
+                $current
+            )
+        }
+        elseif ($parent -is
+            [System.Management.Automation.Language.PipelineAst]) {
+            $pipelineElements = @($parent.PipelineElements)
+            $transparent = $pipelineElements.Count -eq 1 -and
+                [object]::ReferenceEquals(
+                    $pipelineElements[0],
+                    $current
+                )
+        }
+        elseif ($parent -is
+            [System.Management.Automation.Language.SubExpressionAst]) {
+            $transparent = [object]::ReferenceEquals(
+                $parent.SubExpression,
+                $current
+            )
+        }
+        elseif ($parent -is
+            [System.Management.Automation.Language.ArrayExpressionAst]) {
+            # @(...).GetValue(0) のreceiverはPSVariable tableではなくObject[]。
+            # array自体を許可せず、直後のindexが唯一要素へ戻す形だけを通す。
+            $indexParent = $parent.Parent
+            $transparent = [object]::ReferenceEquals(
+                    $parent.SubExpression,
+                    $current
+                ) -and
+                $indexParent -is
+                    [System.Management.Automation.Language.IndexExpressionAst] -and
+                [object]::ReferenceEquals(
+                    $indexParent.Target,
+                    $parent
+                )
+        }
+        elseif ($parent -is
+            [System.Management.Automation.Language.StatementBlockAst]) {
+            $statements = @($parent.Statements)
+            $transparent = $statements.Count -eq 1 -and
+                [object]::ReferenceEquals(
+                    $statements[0],
+                    $current
+                )
+        }
+        elseif ($parent -is
+            [System.Management.Automation.Language.ArrayLiteralAst]) {
+            $elements = @($parent.Elements)
+            $indexParent = $parent.Parent
+            $transparent = $elements.Count -eq 1 -and
+                [object]::ReferenceEquals(
+                    $elements[0],
+                    $current
+                ) -and
+                $indexParent -is
+                    [System.Management.Automation.Language.IndexExpressionAst] -and
+                [object]::ReferenceEquals(
+                    $indexParent.Target,
+                    $parent
+                )
+        }
+        elseif ($parent -is
+            [System.Management.Automation.Language.IndexExpressionAst]) {
+            $transparent = [object]::ReferenceEquals(
+                $parent.Target,
+                $current
+            )
+        }
+        if (-not $transparent) {
+            return $false
+        }
+        $current = $parent
     }
     return $false
 }

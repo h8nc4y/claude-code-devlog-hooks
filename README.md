@@ -442,12 +442,19 @@ provider recovery, and later invocation restore its risk. Index/member mutation
 does not establish a new local binding for a later `[ref]`. Persistent
 script/global function or alias shadowing of the process helper also fails
 closed. Parentheses, casts, subexpressions, and single-element array indexing
-are treated as transparent around the PSVariable table. Unknown command
+retain PSVariable taint provenance; that conservative unwrapping does not make
+every wrapper an approved direct receiver. Unknown command
 wrappers cannot erase a raw PSVariable-table origin: their remaining AST
 subtree is checked conservatively, while command expressions with no such
 origin remain valid. Scope-qualified direct receivers, `Get-Variable
 ExecutionContext`, and aliases or parameters derived from `$ExecutionContext`
-are tracked instead of being trusted as unrelated objects. The optional
+are tracked instead of being trusted as unrelated objects. Even the exact raw
+PSVariable table is considered a direct receiver only when transparent wrappers
+end at a statically named `Get`, `GetValue`, `Set`, or `SetValue` call.
+Returning or assigning that table, passing it as a command argument, or sending
+it through a multi-element pipeline keeps the value tainted. Casts never earn
+the direct-receiver exemption, and an array wrapper must be immediately indexed
+back to its sole element. The optional
 `$Path` default requires trusted `$scriptRoot` provenance and an exact
 `System.IO.Path.GetDirectoryName` call.
 
