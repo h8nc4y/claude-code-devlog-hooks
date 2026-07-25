@@ -1055,6 +1055,135 @@ $binaryPipeResult = Invoke-PrivateMarkerProcess
 '@
         },
         [pscustomobject]@{
+            Name = 'execution-context-psvariable-return-wrapper-before'
+            Expected = $false
+            Source = @'
+function Get-VariableTable {
+    return $ExecutionContext.SessionState.PSVariable
+}
+function Set-EarlyRoot {
+    (Get-VariableTable).Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-array-getvalue-return-wrapper-before'
+            Expected = $false
+            Source = @'
+function Get-VariableTable {
+    return @(
+        $ExecutionContext.SessionState.PSVariable
+    ).GetValue(0)
+}
+function Set-EarlyRoot {
+    (Get-VariableTable).Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-cast-getvalue-return-wrapper-before'
+            Expected = $false
+            Source = @'
+function Get-VariableTable {
+    return (
+        [object[]]$ExecutionContext.SessionState.PSVariable
+    ).GetValue(0)
+}
+function Set-EarlyRoot {
+    (Get-VariableTable).Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-command-argument-before'
+            Expected = $false
+            Source = @'
+function Pass-VariableTable {
+    param($Table)
+    return $Table
+}
+function Set-EarlyRoot {
+    (Pass-VariableTable $ExecutionContext.SessionState.PSVariable).Set(
+        'script:root',
+        './synthetic-root'
+    )
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-pipeline-before'
+            Expected = $false
+            Source = @'
+function Pass-VariableTable {
+    process {
+        return $_
+    }
+}
+function Set-EarlyRoot {
+    ($ExecutionContext.SessionState.PSVariable |
+        Pass-VariableTable).Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'execution-context-psvariable-assignment-before'
+            Expected = $false
+            Source = @'
+function Set-EarlyRoot {
+    $variableTable = $ExecutionContext.SessionState.PSVariable
+    $variableTable.Set('script:root', './synthetic-root')
+}
+$root = [System.IO.Path]::GetFullPath($Path)
+Set-EarlyRoot
+$processBoundary = [System.IO.Path]::Combine(
+    $root,
+    'scripts/private-marker-process.ps1'
+)
+. $processBoundary
+$binaryPipeResult = Invoke-PrivateMarkerProcess
+'@
+        },
+        [pscustomobject]@{
             Name = 'wrapped-aliased-psvariable-script-root-bootstrap-dot-source'
             Expected = $false
             Source = @'
@@ -1542,6 +1671,73 @@ $binaryPipeResult = Invoke-PrivateMarkerProcess
                 'First-invocation policy validator regression failed: ' +
                 "$($case.Name)."
             )
+        }
+    }
+
+    # generic ExecutionContext除外の責務を単体で固定する。直接receiverは後段へ
+    # 渡す一方、returnによるtable escapeはここで拒否しなければならない。
+    $receiverCases = @(
+        [pscustomobject]@{
+            Name = 'direct-getvalue-receiver'
+            Expected = $true
+            Source = '$ExecutionContext.SessionState.PSVariable.GetValue(''localOnly'')'
+        },
+        [pscustomobject]@{
+            Name = 'direct-set-receiver'
+            Expected = $true
+            Source = '$ExecutionContext.SessionState.PSVariable.Set(''localOnly'', ''value'')'
+        },
+        [pscustomobject]@{
+            Name = 'indexed-array-set-receiver'
+            Expected = $true
+            Source = '@($ExecutionContext.SessionState.PSVariable)[0].Set(''localOnly'', ''value'')'
+        },
+        [pscustomobject]@{
+            Name = 'array-getvalue-is-not-direct-receiver'
+            Expected = $false
+            Source = '@($ExecutionContext.SessionState.PSVariable).GetValue(0)'
+        },
+        [pscustomobject]@{
+            Name = 'cast-getvalue-is-not-direct-receiver'
+            Expected = $false
+            Source = '([object[]]$ExecutionContext.SessionState.PSVariable).GetValue(0)'
+        },
+        [pscustomobject]@{
+            Name = 'return-wrapper-escape'
+            Expected = $false
+            Source = 'return $ExecutionContext.SessionState.PSVariable'
+        }
+    )
+    foreach ($receiverCase in $receiverCases) {
+        $receiverTokens = $null
+        $receiverErrors = $null
+        $receiverAst = [System.Management.Automation.Language.Parser]::ParseInput(
+            $receiverCase.Source,
+            [ref]$receiverTokens,
+            [ref]$receiverErrors
+        )
+        $executionContextReferences = @(
+            $receiverAst.FindAll(
+                {
+                    param($node)
+                    return $node -is
+                            [System.Management.Automation.Language.VariableExpressionAst] -and
+                        $node.VariablePath.UserPath -eq 'ExecutionContext'
+                },
+                $true
+            )
+        )
+        if ($receiverErrors.Count -ne 0 -or
+            $executionContextReferences.Count -ne 1) {
+            Add-Failure "Direct PSVariable receiver fixture parse failed: $($receiverCase.Name)."
+            continue
+        }
+        $actualReceiver = (
+            Test-PrivateMarkerExecutionContextReferenceIsDirectPsVariableReceiver `
+                -Variable $executionContextReferences[0]
+        )
+        if ($actualReceiver -ne $receiverCase.Expected) {
+            Add-Failure "Direct PSVariable receiver regression failed: $($receiverCase.Name)."
         }
     }
 }
@@ -2459,6 +2655,13 @@ Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Patte
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'posix-late-ready-setsid-shim' -Description 'POSIX late-ready process-group recovery fixture'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'wrapped-aliased-execution-context-psvariable-set' -Description 'aliased ExecutionContext receiver regression'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'wrapped-get-variable-execution-context-psvariable-set' -Description 'provider-read ExecutionContext receiver regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'execution-context-psvariable-return-wrapper-before' -Description 'returned PSVariable table receiver regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'execution-context-psvariable-array-getvalue-return-wrapper-before' -Description 'array GetValue PSVariable receiver regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'execution-context-psvariable-cast-getvalue-return-wrapper-before' -Description 'cast GetValue PSVariable receiver regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'execution-context-psvariable-command-argument-before' -Description 'PSVariable command-argument receiver regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'execution-context-psvariable-pipeline-before' -Description 'PSVariable pipeline receiver regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'execution-context-psvariable-assignment-before' -Description 'PSVariable assignment receiver regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'Expected returned PSVariable table to mutate script:root at runtime' -Description 'PSVariable return-wrapper runtime mutation proof'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'allowed-called-wrapper-with-unused-risky-type-scriptblock' -Description 'dormant wrapper scriptblock regression'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '(?s)\[byte\[\]\]\$binaryProbeBytes\s*=\s*@\(\s*0x00,\s*0x80,\s*0xFF,' -Description 'BOM-less binary standard-stream fixture'
 Assert-FileContains -RelativePath 'scripts/private-marker-first-invocation-policy.ps1' -Pattern 'InvokeMemberExpressionAst' -Description 'invoked scriptblock AST classification'

@@ -5,6 +5,8 @@
 private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8で
 `main`へ統合済み。030 固有の GitHub URL allowlist、
 `CLAUDE_CODE_DEVLOG_HOOKS_PRIVATE_MARKERS`、plugin/hook/Bash CI 契約も維持した。
+follow-upではraw PSVariable tableを静的Get/Set系の直接receiverとしてだけ許可し、
+return / assignment / command argument / multi-element pipeline escapeを閉じた。
 
 ## Delivered
 
@@ -54,6 +56,12 @@ private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8で
   script/global helper shadowを拒否。index/member mutationは`[ref]`のlocal
   bindingに数えず、`$Path` fallbackはtrusted `$scriptRoot` +
   `System.IO.Path.GetDirectoryName`へ固定。
+- `$ExecutionContext.SessionState.PSVariable` のgeneric-risk除外を
+  consumer-aware化。transparent wrapperの終端が静的
+  `Get`/`GetValue`/`Set`/`SetValue` receiverの場合だけ後段の変数名検査へ渡し、
+  return / assignment / command argument / multi-element pipelineはfail closed。
+  castは除外し、arrayは直後のindexで唯一要素へ戻す形だけを許可。
+  PS7/PS5.1で実際の`script:root`変異を証明するruntime fixtureも追加。
 - POSIX はexternal/nativeとも同じready/release wrapperを使い、option-free
   `setsid` operand、ready PIDの`getpgid(pid) == pid`確認後にだけtargetを解放。
   deadlineはprep/start/handshake前から計測し、tree/stream/final cleanupは
@@ -70,6 +78,9 @@ private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8で
 
 - scanner full self-test: PowerShell 7 / Windows PowerShell 5.1 / Ubuntu
   PowerShell 7 の最終 follow-up treeでPASS。
+- PSVariable return-wrapper follow-up: readiness とfull scanner self-testを
+  PS7 / PS5.1 / Ubuntu (`--init` container)でPASS。PID 1がreapしないcontainer
+  では停止済みchildがzombie化することも切り分け済み。
 - readiness: PS7 / PS5.1 / Ubuntu PASS。workflow mutationと first-call
   mutation（wrapper/alias/function objectを含む）も拒否。
 - plugin contract PS7/PS5.1、launcher 13 cases、hook pipe tests
@@ -85,8 +96,8 @@ private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8で
 ## Integration state
 
 - PR #8はsquash merge済み（merge `a74f34ed8457797384a0b79863644157ea94991e`）。
-- local / `origin/main` は同じmerge commitで、task branch削除・worktree clean・
-  open PR 0まで確認済み。
+- PSVariable receiver follow-up のintegration recordは PR #10
+  （initial commit `c9db040723c6f5579b5cb960d2ffb7b771885559`）。
 
 ## External gates / unverified
 

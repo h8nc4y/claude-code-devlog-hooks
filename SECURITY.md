@@ -130,13 +130,20 @@ and `[ref]` values with a guaranteed prior local binding from
 `$ExecutionContext.SessionState.PSVariable` receiver instead of trusting only a
 member name, and rejects mutable `PSVariable.Get` handles or PSVariable-table
 aliases without rejecting unrelated object `GetValue`/`SetValue` methods.
-Parentheses, casts, subexpressions, and single-element array indexing are
-unwrapped before receiver identity is decided. If an unsupported command
+Parentheses, casts, subexpressions, and single-element array indexing preserve
+taint provenance; this does not make every wrapper an approved direct receiver.
+If an unsupported command
 wrapper still contains the raw PSVariable receiver, the remaining subtree is
 treated as tainted rather than allowing the wrapper to erase provenance.
 Scope-qualified `$ExecutionContext` receivers are normalized, and
 `Get-Variable ExecutionContext`, aliases, or parameters are not treated as
-unrelated objects. An unused scriptblock remains dormant only in an
+unrelated objects. The raw PSVariable table is exempted from generic
+`ExecutionContext` risk only when transparent wrappers terminate at a static
+`Get`/`GetValue`/`Set`/`SetValue` receiver. Return, assignment, command-
+argument, and multi-element-pipeline escapes remain fail-closed. Casts are not
+trusted for this exemption, and an array wrapper must immediately index back to
+its sole element. An unused
+scriptblock remains dormant only in an
 unreferenced local binding; provider recovery, inline use, scope escape, or
 later invocation propagates its risk. Index/member mutation is not accepted as
 a prior local binding for `[ref]`, and called wrappers cannot persistently

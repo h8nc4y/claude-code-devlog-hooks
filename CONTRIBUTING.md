@@ -140,13 +140,19 @@ binding, and unrelated object
 `GetValue`/`SetValue` methods remain valid, while `script:`/`global:` mutation,
 mutable `SessionState.PSVariable.Get` handles, and PSVariable-table aliases fail
 closed when their wrapper is called before the bootstrap. Parentheses, casts,
-subexpressions, and single-element array indexing do not hide that table.
+subexpressions, and single-element array indexing do not erase its taint, but
+that does not make every wrapper an approved direct receiver.
 Unsupported command wrappers retain any raw PSVariable-table provenance found
 in their AST subtree; safe command expressions without that provenance stay
 allowed. Scope-qualified `$ExecutionContext` receivers and aliases/parameters
 derived from that automatic variable, including `Get-Variable`, must not bypass
-the receiver check. Keep unused local scriptblocks dormant, but reject scope
-escape, inline consumption, provider recovery, later use, and persistent
+the receiver check. Treat the raw PSVariable table as direct only when
+transparent wrappers lead immediately to a static
+`Get`/`GetValue`/`Set`/`SetValue` receiver; reject return, assignment, command-
+argument, and multi-element-pipeline escapes. Never trust a cast for this
+exemption, and require an array wrapper to index immediately back to its sole
+element. Keep unused local scriptblocks dormant, but reject scope escape,
+inline consumption, provider recovery, later use, and persistent
 script/global helper shadowing. Index/member mutation is not a prior local
 binding for `[ref]`. The optional `$Path` fallback must retain its exact
 `$PSScriptRoot`/`System.IO.Path.GetDirectoryName` provenance.

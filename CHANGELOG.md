@@ -31,8 +31,13 @@ The format loosely follows Keep a Changelog conventions.
   handling across transparent receiver wrappers, with prior-local-binding
   provenance for unqualified `[ref]` and fail-closed raw provenance through
   unsupported command wrappers plus scoped/aliased/parameterized
-  `$ExecutionContext` receivers and `Get-Variable` recovery. Unreferenced local
-  scriptblocks remain dormant, while scope escape, inline/provider consumption,
+  `$ExecutionContext` receivers and `Get-Variable` recovery. Raw PSVariable
+  tables now retain that risk when returned, assigned, passed as command
+  arguments, or sent through multi-element pipelines; only transparent paths
+  ending at static `Get`/`GetValue`/`Set`/`SetValue` receivers reach the
+  variable-name checks. Casts are excluded and array wrappers must immediately
+  index back to their sole element. Unreferenced local scriptblocks remain
+  dormant, while scope escape, inline/provider consumption,
   persistent helper shadowing, and index/member pseudo-bindings fail closed;
   optional path initialization now requires trusted `scriptRoot` provenance,
   actual Job membership, failures before Job assignment/resume, and retained-
