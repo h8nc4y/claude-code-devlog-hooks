@@ -3,7 +3,7 @@
 ## Current goal
 
 private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8、
-PSVariable receiver follow-upはPR #10で`main`へ統合済み。現在のfollow-upでは
+PSVariable receiver follow-upはPR #10で`main`へ統合済み。本follow-upでは
 全production regexへ有限MatchTimeoutを付け、各matchを最大250 msへ有限化する。
 
 ## Delivered
@@ -109,7 +109,8 @@ PSVariable receiver follow-upはPR #10で`main`へ統合済み。現在のfollow
   `0039d8441a211929072dd19edc89282204f3e3ee`、initial commit
   `c9db040723c6f5579b5cb960d2ffb7b771885559`）。
 - regex MatchTimeout follow-up は `fix/regex-match-timeout` の最終freezeで
-  local 3環境検証と独立review CLEANまで完了。PR／remote CI／mergeは未確認。
+  local 3環境検証と独立review CLEANまで完了。GitHub integration recordは
+  PR #11とし、state／merge commit／Actions evidenceはGitHub現況を正とする。
 
 ## External gates / unverified
 
