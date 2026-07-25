@@ -96,8 +96,8 @@ return / assignment / command argument / multi-element pipeline escapeを閉じ�
 ## Integration state
 
 - PR #8はsquash merge済み（merge `a74f34ed8457797384a0b79863644157ea94991e`）。
-- follow-upは `fix/psvariable-return-escape` で検証済み。PR/merge後にこの
-  integration stateを最終commitへ同期する。
+- PSVariable receiver follow-up のintegration recordは PR #10
+  （initial commit `c9db040723c6f5579b5cb960d2ffb7b771885559`）。
 
 ## External gates / unverified
 
