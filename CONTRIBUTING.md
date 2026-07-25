@@ -122,6 +122,18 @@ timeout/output, and isolated-directory failures must emit only the fixed
 process-boundary stderr line with exit code 2 and no absolute local path.
 Invalid timeout, deadline, or process-boundary test-seam arguments use that same
 body-level fixed diagnostic instead of PowerShell parameter-binding output.
+The suite also scans a one-million-character adversarial no-match line. Every
+production regex must use a finite .NET match timeout under PowerShell 7 and
+Windows PowerShell 5.1; a timeout must finish within the bounded process window,
+emit only the fixed redacted `regex-timeout` stderr line, and exit 2 without
+leaking fixture or repository paths. A 900,000-character safe positive control
+must still pass. A git-tracked timeout combined with synthetic isolation cleanup
+failure must emit exactly one `process-boundary` line, never both diagnostics.
+Readiness parses the scanner AST: it rejects regex operators, casts, shortened
+or alternate Regex types, `switch -Regex`, `Select-String`, and dynamic or Regex
+`New-Object` types, and pins the sole three-argument constructor to the
+`Math.Min(250, scan deadline)`-derived timeout. Mutation fixtures cover each
+entry point and timeout-provenance replacement.
 
 The first bounded-process call is guarded structurally with a shared PowerShell
 AST policy. It follows direct/transitive local-function calls, scope prefixes,

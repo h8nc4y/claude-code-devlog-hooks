@@ -85,6 +85,12 @@ The format loosely follows Keep a Changelog conventions.
 - Hardened private-marker scanning to inspect regular stage-0 index blobs and
   tracked worktree files independently, reject unsafe or changing repository
   states, and preserve the existing repository URL and local marker contracts.
+- Added a finite, PowerShell 5.1-compatible .NET match timeout to every
+  production scanner regex. Regex timeouts now fail closed with one fixed
+  redacted exit-2 diagnostic, backed by a one-million-character adversarial
+  no-match regression, a near-limit safe positive control, an AST mutation
+  gate, and a combined Git-cleanup failure regression on Windows (PowerShell 7
+  and Windows PowerShell 5.1) and Ubuntu (PowerShell 7).
 - Expanded scanner CI to PowerShell 7 and Windows PowerShell 5.1 on Windows and
   PowerShell 7 on Ubuntu 24.04, with exact readiness guards for job ownership,
   workflow triggers, permissions, job IDs, runner, timeout, step shell, and

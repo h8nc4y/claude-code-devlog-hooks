@@ -161,6 +161,14 @@ complete finding table uses explicit LF, is encoded once, and must fit within
 64 KiB of actual UTF-8 bytes before any row is emitted. After serialization,
 the scan-wide deadline is checked again immediately before failure output;
 the clean path performs the same check immediately before success output.
+Every production regular expression is constructed with the PowerShell
+5.1-compatible three-argument .NET constructor and a finite match timeout,
+capped at 250 ms and clamped to the configured scan deadline. A timeout at any
+`Match`, `IsMatch`, or `NextMatch` boundary is retained until Git isolation
+cleanup finishes. A timeout alone emits only the fixed redacted `regex-timeout`
+integrity diagnostic and exits 2; neither input nor pattern content is replayed.
+If cleanup also fails, its single `process-boundary` diagnostic takes precedence
+so the two failures cannot emit two stderr lines.
 Timeout, deadline, and process-boundary test-seam values are parsed and bounded
 inside the script so invalid input cannot fall back to path-bearing PowerShell
 parameter-binding diagnostics.
