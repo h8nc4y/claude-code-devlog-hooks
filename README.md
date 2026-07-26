@@ -302,18 +302,26 @@ requirements, architecture, detailed design, and verification are in
   metacharacters, explicit native-path conversion, one-runtime-only dispatch,
   a real hook bridge, and non-sensitive unsupported-host/missing-file
   diagnostics. The 13-case launcher suite passed under both WSL Bash 5.3.9 and
-  Git for Windows Bash; live Claude Code registration remains unverified.
+  Git for Windows Bash, and under system Bash 3.2 on GitHub-hosted macOS 15;
+  live Claude Code registration remains unverified.
 - Behavior is verified by the shared pipe-test suite
   (`scripts/test-hooks.ps1`): 30 cross-runtime cases, plus three Bash-only
-  POSIX path-escaping cases on `ubuntu-latest`. Windows CI covers PowerShell
-  7 and Windows PowerShell 5.1; Ubuntu CI covers Bash and `bash -n`.
+  POSIX path-escaping cases on `ubuntu-latest` and `macos-15`. Windows CI
+  covers PowerShell 7 and Windows PowerShell 5.1; Ubuntu CI covers Bash, and
+  macOS CI covers system `/bin/bash` 3.2 plus all-script syntax validation.
+- PR #12 [Actions run 30199559874](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30199559874)
+  passed all Windows, Ubuntu, and macOS jobs. Its macOS job ran on macOS
+  15.7.7 with system Bash 3.2.57 and passed the Darwin/Bash canary, readiness,
+  plugin contract, syntax gate, 13 launcher cases, and 33 hook cases.
 - The pre-parameterization ancestors of these hooks (same logic, hardcoded
   paths) have run in daily Claude Code use on Windows since 2026-06-15,
   most recently on Claude Code 2.1.207. The parameterized scripts in this
   repository are verified by the pipe-test suite; their live in-session
   registration was not separately re-exercised at release time.
-- The Bash hooks are pipe-tested on Linux. Live Claude Code registration on
-  macOS/Linux and actual macOS/Bash 3.2 execution remain unverified.
+- The Bash hooks are pipe-tested on Linux and GitHub-hosted macOS 15. System
+  Bash 3.2 execution is verified by the synthetic macOS job above; live Claude
+  Code registration and real in-session journal behavior on macOS/Linux remain
+  unverified.
 
 ## Known Limitations
 
@@ -403,8 +411,10 @@ Windows PowerShell 5.1 can also host the scripts
 Actions workflow runs repository validation, the PowerShell 7 / Windows
 PowerShell 5.1 / Bash pipe-test targets, Bash syntax, the scan self-test, the
 private-marker scan, plugin package/launcher tests, and a whitespace check on
-pull requests and pushes to `main`. The strict Claude CLI validator is a local
-release check because CI does not install or authenticate Claude Code.
+pull requests and pushes to `main`. A finite `macos-15` job additionally proves
+Darwin plus system `/bin/bash` 3.2, then runs readiness, plugin, syntax,
+launcher, and all 33 Bash-hook cases. The strict Claude CLI validator is a
+local release check because CI does not install or authenticate Claude Code.
 
 The scanner self-test retains the PowerShell host that starts it, so the
 `pwsh` and `powershell` commands are distinct compatibility measurements.

@@ -4,15 +4,18 @@
 
 Class M follow-upとして、standard GitHub-hosted `macos-15` 上のDarwin +
 system `/bin/bash` 3.2 canary、plugin package / launcher、Bash syntax、
-30 shared + 3 POSIX-path hook testsを有限CIへ追加する。production hookの挙動、
-設定、実Vault、plugin配布は変更しない。readinessはjob/runner/shell/stepの削除・
-置換をexact contractとmutation regressionでfail closedにする。
-
-macOS/Bash 3.2の確認済み表記は、GitHub Actionsの新jobがgreenになった後だけ
-README、POSIX design/test plan、本handoffへ反映する。
+30 shared + 3 POSIX-path hook testsを有限CIへ追加した。native runnerで判明した
+Bash 3.2のUTF-8符号拡張もshared helperで最小修正し、設定、実Vault、
+plugin配布は変更していない。readinessはjob/runner/shell/stepとUTF-8分岐の
+削除・置換をfail closedにする。
 
 ## Delivered
 
+- `macos-15` / system `/bin/bash` 3.2 jobとexact readiness契約を追加。
+  `/var`→`/private/var` fixture正規化と、C0だけを数値化するUTF-8 JSON escapeで
+  path fixtureの偽陰性とUTF-8互換性欠陥を解消。
+- 日本語・4-byte emoji・警告記号・quote/backslash/tab/newline/`0x01`を同じ
+  POSIX-path fixtureでstrict UTF-8 JSON往復し、Bash 3.2 signed-byte回帰を固定。
 - stage-0 index blob と tracked worktree を別 provenance として検査し、最終
   raw index snapshot 一致を必須化。
 - Git child の全 `GIT_*`、config、hook、filter、prompt、trace、repository /
@@ -100,12 +103,18 @@ README、POSIX design/test plan、本handoffへ反映する。
 - plugin contract PS7/PS5.1、launcher 13 cases、hook pipe tests
   PS7/PS5.1各30 cases・Windows Bash 30 cases・Ubuntu Bash 33 cases、
   Bash syntax、scanner通常scan PS7/PS5.1/Ubuntu: PASS。
+- Bash 3.2 read-only / network-none fixtureで日本語・emoji・警告記号・
+  JSON特殊文字・C0のexact round-trip: RED→GREEN。最終treeのfull scanner
+  self-test PS7 / PS5.1、独立review P1/P2/P3=0。
 - `claude plugin validate . --strict`: PASS。
 - AST/POSIX/Windows deadlineの独立read-only再review: CLEAN。
 - Gitleaks directory / history（11 commits）: 0 findings。
   Semgrep `p/default`（44 files / 88 rules）: 0 findings / 0 errors。
 - PR #8 Actions run `30133375935` とmerge後main run `30134332191` は、
   Windows / Ubuntuの全jobがPASS。
+- PR #12 Actions run `30199559874` は全3jobがPASS。macOS job
+  `89787025219`でmacOS 15.7.7 / Bash 3.2.57、canary、readiness、plugin、
+  syntax、launcher 13、hooks 33を実ログ確認。
 
 ## Integration state
 
@@ -116,9 +125,13 @@ README、POSIX design/test plan、本handoffへ反映する。
 - regex MatchTimeout follow-up は `fix/regex-match-timeout` の最終freezeで
   local 3環境検証と独立review CLEANまで完了。GitHub integration recordは
   PR #11とし、state／merge commit／Actions evidenceはGitHub現況を正とする。
+- macOS/Bash 3.2 follow-upのGitHub integration recordはPR #12。source
+  verificationはActions run `30199559874`、merge state／merge commit／
+  post-main evidenceはGitHub現況を正とする。
 
 ## External gates / unverified
 
 - live Claude Code plugin install、marketplace 公開、実 Vault 書込み、
-  macOS hardware / Bash 3.2 は未確認。login、credential、実データ、公開、
-  paid operation は実施しない。
+  owner環境のmacOS live sessionは未確認。GitHub-hosted macOS 15 /
+  system Bash 3.2 synthetic executionは確認済み。login、credential、
+  実データ、公開、paid operation は実施しない。

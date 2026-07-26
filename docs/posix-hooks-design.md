@@ -151,9 +151,12 @@ or malformed values are unjudgeable and fail open before Bash arithmetic.
 
 The shared PowerShell harness runs the same behavioral cases against `.ps1`
 and `.sh` entrypoints. On a POSIX host, three additional cases exercise path
-JSON escaping. CI adds an `ubuntu-latest` Bash job and syntax check.
+JSON escaping. CI runs those checks on `ubuntu-latest` and on a finite
+`macos-15` job using the system `/bin/bash`.
 
-Actual macOS/Bash 3.2 execution is not yet verified. Compatibility is
-design-derived from the feature set and the BSD `stat` fallback. The Class M
-follow-up above is in progress; keep this limitation explicit until its
-`macos-15` job records a successful `/bin/bash` 3.2 run.
+PR #12 [Actions run 30199559874](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30199559874)
+verified macOS 15.7.7 and system Bash 3.2.57. The job passed the Darwin/Bash
+canary, readiness, plugin contract, all-script syntax gate, 13 launcher cases,
+and all 33 hook cases, including exact Japanese/emoji/control-byte JSON
+round-trips. Live Claude Code registration and real in-session journal behavior
+on macOS remain outside this synthetic CI scope.

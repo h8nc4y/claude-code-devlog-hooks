@@ -118,6 +118,9 @@ substitution of each required job, runner, shell, and step.
 - No hook emits stderr in any behavioral case.
 - UTF-8 output and path JSON round-trips are exact.
 - No real devlog, secret, OAuth value, customer data, or paid service is used.
-- Actual macOS live-session behavior remains outside this synthetic CI scope.
-  Until the new job is green, macOS/Bash 3.2 execution also remains explicitly
-  unverified.
+- PR #12 [Actions run 30199559874](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30199559874)
+  passed all three jobs. The macOS 15.7.7 job used system Bash 3.2.57 and
+  passed the canary, readiness, plugin contract, syntax, 13 launcher cases,
+  and all 33 hook cases.
+- Actual macOS live-session behavior remains outside this synthetic CI scope;
+  only the synthetic system-Bash execution above is verified.
