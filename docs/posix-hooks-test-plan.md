@@ -14,6 +14,7 @@ are synthetic throwaway directories selected through `CLAUDE_DEVLOG_DIR`.
 | PowerShell hooks | Windows, Windows PowerShell 5.1 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell` | 30 shared |
 | Bash hooks | Windows WSL or Git Bash | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 30 shared |
 | Bash hooks | Ubuntu CI | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 30 shared + 3 POSIX-path cases |
+| Bash hooks | macOS 15 CI, system Bash 3.2 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell /bin/bash` | 30 shared + 3 POSIX-path cases |
 
 The Windows Bash run translates only synthetic fixture paths. WSL imports
 `CLAUDE_DEVLOG_DIR` and `CLAUDE_DEVLOG_LANG` through a child-only `WSLENV`;
@@ -89,7 +90,8 @@ Run SessionStart, UserPromptSubmit, and Stop separately. For each output:
 
 ## Static And Repository Gates
 
-- `bash --noprofile --norc -n hooks/*.sh`
+- `for script in hooks/*.sh scripts/*.sh; do bash --noprofile --norc -n "$script" || exit 1; done`
+- `for script in hooks/*.sh scripts/*.sh; do /bin/bash --noprofile --norc -n "$script" || exit 1; done` on macOS
 - `pwsh -NoProfile -File ./scripts/validate-oss-readiness.ps1`
 - `pwsh -NoProfile -File ./scripts/test-scan-private-markers.ps1`
 - `pwsh -NoProfile -File ./scripts/scan-private-markers.ps1`
@@ -98,14 +100,22 @@ Run SessionStart, UserPromptSubmit, and Stop separately. For each output:
 
 `validate-oss-readiness.ps1` checks both settings examples, the Bash helper
 contract, no BOM on Unix shebang files, the Ubuntu workflow, GNU/BSD `stat`
-fallbacks, and the strict PowerShell boolean guard.
+fallbacks, and the strict PowerShell boolean guard. The macOS follow-up extends
+that exact workflow contract to require a finite `macos-15` job, a Darwin plus
+`/bin/bash` 3.2 canary, explicit `/bin/bash` syntax/launcher/hook commands, and
+the plugin/readiness checks. Mutation fixtures must reject removal or
+substitution of each required job, runner, shell, and step.
 
 ## Acceptance Criteria
 
 - All three shell targets pass the shared 30 cases.
 - Ubuntu passes all 33 cases and Bash syntax validation.
+- The standard `macos-15` job proves Darwin plus system `/bin/bash` 3.2, then
+  passes the plugin package, launcher, all 33 Bash-hook cases, and syntax gate
+  within a finite timeout.
 - No hook emits stderr in any behavioral case.
 - UTF-8 output and path JSON round-trips are exact.
 - No real devlog, secret, OAuth value, customer data, or paid service is used.
-- Actual macOS live-session behavior remains explicitly unverified until
-  measured on macOS.
+- Actual macOS live-session behavior remains outside this synthetic CI scope.
+  Until the new job is green, macOS/Bash 3.2 execution also remains explicitly
+  unverified.

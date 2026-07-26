@@ -394,7 +394,7 @@ pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash
 pwsh -NoProfile -File ./scripts/test-scan-private-markers.ps1
 pwsh -NoProfile -File ./scripts/scan-private-markers.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-scan-private-markers.ps1   # Windows only
-bash --noprofile --norc -n ./hooks/*.sh ./scripts/*.sh
+for script in ./hooks/*.sh ./scripts/*.sh; do bash --noprofile --norc -n "$script" || exit 1; done
 git diff --check
 ```
 

@@ -2,9 +2,14 @@
 
 ## Current goal
 
-private-marker scanner の fail-closed・hermetic・bounded 更新はPR #8、
-PSVariable receiver follow-upはPR #10で`main`へ統合済み。本follow-upでは
-全production regexへ有限MatchTimeoutを付け、各matchを最大250 msへ有限化する。
+Class M follow-upとして、standard GitHub-hosted `macos-15` 上のDarwin +
+system `/bin/bash` 3.2 canary、plugin package / launcher、Bash syntax、
+30 shared + 3 POSIX-path hook testsを有限CIへ追加する。production hookの挙動、
+設定、実Vault、plugin配布は変更しない。readinessはjob/runner/shell/stepの削除・
+置換をexact contractとmutation regressionでfail closedにする。
+
+macOS/Bash 3.2の確認済み表記は、GitHub Actionsの新jobがgreenになった後だけ
+README、POSIX design/test plan、本handoffへ反映する。
 
 ## Delivered
 

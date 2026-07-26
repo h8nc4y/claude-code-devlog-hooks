@@ -14,6 +14,20 @@ floor so the scripts can run with the older system Bash still found on macOS.
 The implementation uses only Bash features available in 3.2 plus standard
 Unix utilities (`awk`, `cat`, `date`, `mkdir`, `rm`, and `stat`).
 
+### Class M macOS compatibility follow-up
+
+The next compatibility increment verifies that existing contract on a standard
+GitHub-hosted `macos-15` runner. It must use the system `/bin/bash`, prove that
+the host is Darwin and the selected shell is Bash 3.2, then run the existing
+synthetic plugin and hook suites. This changes CI coverage and its exact
+readiness contract only; production hook behavior, configuration, journal
+access, and plugin distribution remain unchanged.
+
+The job must be finite, must not install packages, and must not use a live
+Claude Code plugin registration, a real Vault, credentials, OAuth, secrets, or
+real user data. Documentation may call macOS/Bash 3.2 verified only after the
+GitHub-hosted job completes successfully.
+
 ## Required Behavioral Contract
 
 The Bash and PowerShell variants share these observable invariants:
@@ -131,5 +145,6 @@ and `.sh` entrypoints. On a POSIX host, three additional cases exercise path
 JSON escaping. CI adds an `ubuntu-latest` Bash job and syntax check.
 
 Actual macOS/Bash 3.2 execution is not yet verified. Compatibility is
-design-derived from the feature set and the BSD `stat` fallback; keep that
-limitation explicit until a real macOS run is recorded.
+design-derived from the feature set and the BSD `stat` fallback. The Class M
+follow-up above is in progress; keep this limitation explicit until its
+`macos-15` job records a successful `/bin/bash` 3.2 run.
