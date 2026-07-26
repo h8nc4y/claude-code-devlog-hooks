@@ -82,6 +82,8 @@ Write-Host "Testing hooks with: $shellPath ($shellFamily $shellVersion)"
 # Japanese assertion needle, kept as escapes so this file stays ASCII-only
 # (an ASCII-only .ps1 parses identically under PS 5.1 and 7, BOM or not).
 $jaNeedle = [regex]::Unescape('\u958b\u767a\u30ed\u30b0')   # kanji for "dev log"
+$warningSign = [string][char]0x26A0
+$journalEmoji = [char]::ConvertFromUtf32(0x1F4D3)
 
 function Get-NowEpoch {
     return [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -549,7 +551,6 @@ Add-Case 'session-start-unwritable-root-warns-silently' {
     Assert-Condition ([string]::IsNullOrWhiteSpace($result.Stderr)) "SessionStart should keep stderr silent on an unwritable root (got: $($result.Stderr))."
     $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
     Assert-Condition ($json.hookSpecificOutput.hookEventName -eq 'SessionStart') 'Context should still be injected on an unwritable root.'
-    $warningSign = [string][char]0x26A0   # the warning sign prefixes the disclosure line
     Assert-Condition ($json.hookSpecificOutput.additionalContext.Contains($warningSign)) 'Context should disclose that enforcement is off.'
 }
 
@@ -606,7 +607,9 @@ Add-Case 'stop-blocks-when-stop-hook-active-is-nested-only' {
 if ($isBashHook -and $env:OS -ne 'Windows_NT') {
     function New-SpecialPathCaseRoot {
         $script:caseCounter++
-        $segment = 'json-"quote"-\backslash-' + [char]0x09 + 'tab-' + [char]0x0A + 'newline-' + [char]0x01 + 'control'
+        # Include multi-byte UTF-8 beside JSON syntax and C0 bytes. This catches
+        # Bash 3.2 signed-byte corruption without making this .ps1 non-ASCII.
+        $segment = 'json-' + $jaNeedle + '-' + $journalEmoji + '-' + $warningSign + '-"quote"-\backslash-' + [char]0x09 + 'tab-' + [char]0x0A + 'newline-' + [char]0x01 + 'control'
         $caseRoot = Join-Path $tempRoot ('case-' + $script:caseCounter + '-' + $segment)
         New-Item -ItemType Directory -Path $caseRoot | Out-Null
         return $caseRoot

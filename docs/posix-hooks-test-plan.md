@@ -73,6 +73,8 @@ shape, language, path, and side effects together.
 
 On non-Windows hosts, create a devlog directory whose name contains:
 
+- Japanese multi-byte UTF-8 text;
+- a four-byte emoji and a three-byte warning sign;
 - a double quote;
 - a backslash;
 - a tab;
