@@ -44,6 +44,10 @@ ambient `pwsh`, `powershell`, or `bash` cannot invalidate fallback cases.
 Recorded hook paths are canonicalized into the actual host's long native path
 before comparison, covering Git for Windows MSYS argument conversion and 8.3
 short-name aliases without weakening the fixed-target assertion.
+The throwaway fixture root is also converted once through `pwd -P` before any
+expected hook path is built. This removes a trailing `TMPDIR` separator and
+keeps macOS `/var` aliases aligned with the launcher's physical
+`/private/var` path without weakening filename or event assertions.
 
 | Case | Expected selected runtime |
 | --- | --- |

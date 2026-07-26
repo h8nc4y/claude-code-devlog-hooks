@@ -3735,6 +3735,8 @@ Assert-FileContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern 'CL
 Assert-FileContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern '(?m)^\s*exec ' -Description 'single-runtime process replacement'
 Assert-FileNotContains -RelativePath 'hooks/hooks.json' -Pattern '\$\{user_config\.' -Description 'shell userConfig interpolation'
 Assert-FileNotContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern '(?m)^\s*eval(?:\s|$)' -Description 'eval of configuration values'
+Assert-FileContains -RelativePath 'scripts/test-plugin-launcher.sh' -Pattern '(?m)^TEST_ROOT_RAW=\$\(mktemp -d ' -Description 'raw synthetic launcher fixture root'
+Assert-FileContains -RelativePath 'scripts/test-plugin-launcher.sh' -Pattern '(?m)^TEST_ROOT=\$\(CDPATH= cd -- "\$TEST_ROOT_RAW" && pwd -P\)' -Description 'physical synthetic launcher fixture root'
 
 Test-SkillFrontmatter
 Test-ExampleSettings -RelativePath 'examples/hooks-settings.json'
