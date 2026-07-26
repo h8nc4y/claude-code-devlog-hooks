@@ -82,7 +82,7 @@ jobs:
 
       - name: Check Bash syntax
         shell: bash
-        run: bash --noprofile --norc -n hooks/*.sh scripts/*.sh
+        run: for script in hooks/*.sh scripts/*.sh; do bash --noprofile --norc -n "$script" || exit 1; done
 
       - name: Test plugin package
         shell: pwsh
@@ -107,3 +107,37 @@ jobs:
       - name: Check whitespace
         shell: pwsh
         run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
+
+  macos-bash-3-2:
+    name: Test Bash hooks on macOS 15 / Bash 3.2
+    # macOS 15のsystem Bashを互換性floorとして実測し、latest labelの移行で
+    # 検証対象OSが無言で変わらないようdated standard runnerを選ぶ。
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Verify Darwin and system Bash 3.2
+        shell: /bin/bash --noprofile --norc -eo pipefail {0}
+        run: test "$(uname -s)" = Darwin && test "$BASH" = /bin/bash && [[ "$BASH_VERSION" == 3.2.* ]]
+
+      - name: Validate OSS readiness on macOS
+        shell: pwsh
+        run: ./scripts/validate-oss-readiness.ps1
+
+      - name: Test plugin package on macOS
+        shell: pwsh
+        run: ./scripts/test-plugin.ps1
+
+      - name: Check Bash syntax with system Bash 3.2
+        shell: /bin/bash --noprofile --norc -eo pipefail {0}
+        run: for script in hooks/*.sh scripts/*.sh; do /bin/bash --noprofile --norc -n "$script" || exit 1; done
+
+      - name: Test plugin launcher with system Bash 3.2
+        shell: /bin/bash --noprofile --norc -eo pipefail {0}
+        run: /bin/bash --noprofile --norc ./scripts/test-plugin-launcher.sh
+
+      - name: Test hooks with system Bash 3.2
+        shell: pwsh
+        run: ./scripts/test-hooks.ps1 -HookShell /bin/bash

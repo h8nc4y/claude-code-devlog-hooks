@@ -314,7 +314,10 @@ devlog_json_escape() {
         case $ch in
             '"') DEVLOG_ESCAPED=$DEVLOG_ESCAPED'\"' ;;
             \\) DEVLOG_ESCAPED=$DEVLOG_ESCAPED'\\' ;;
-            *)
+            [[:cntrl:]])
+                # Bash 3.2 sign-extends UTF-8 bytes passed to printf %d. Only
+                # classify ASCII controls numerically so bytes 0x80-0xff keep
+                # their original UTF-8 representation.
                 printf -v code '%d' "'$ch"
                 if [ "$code" -lt 32 ]; then
                     printf -v escaped '\\u%04x' "$code"
@@ -323,6 +326,7 @@ devlog_json_escape() {
                     DEVLOG_ESCAPED=$DEVLOG_ESCAPED$ch
                 fi
                 ;;
+            *) DEVLOG_ESCAPED=$DEVLOG_ESCAPED$ch ;;
         esac
         index=$((index + 1))
     done

@@ -14,6 +14,22 @@ floor so the scripts can run with the older system Bash still found on macOS.
 The implementation uses only Bash features available in 3.2 plus standard
 Unix utilities (`awk`, `cat`, `date`, `mkdir`, `rm`, and `stat`).
 
+### Class M macOS compatibility follow-up
+
+The compatibility increment verifies that existing contract on a standard
+GitHub-hosted `macos-15` runner. It must use the system `/bin/bash`, prove that
+the host is Darwin and the selected shell is Bash 3.2, then run the existing
+synthetic plugin and hook suites. The initial change adds CI coverage and its
+exact readiness contract. If that native runner exposes a compatibility gap,
+the follow-up may change the shared Bash helper only as needed to restore this
+documented behavior; configuration, journal access, and plugin distribution
+remain unchanged.
+
+The job must be finite, must not install packages, and must not use a live
+Claude Code plugin registration, a real Vault, credentials, OAuth, secrets, or
+real user data. Documentation may call macOS/Bash 3.2 verified only after the
+GitHub-hosted job completes successfully.
+
 ## Required Behavioral Contract
 
 The Bash and PowerShell variants share these observable invariants:
@@ -86,10 +102,17 @@ JSON with simple interpolation would therefore be invalid or ambiguous.
 - bytes `0x01` through `0x1f` become `\u00xx`; and
 - UTF-8 bytes at or above `0x20` pass through unchanged.
 
+The numeric `%d` conversion is entered only after a C-locale control-character
+match. Bash 3.2 sign-extends bytes `0x80` through `0xff` when they are passed
+to that conversion, so classifying every byte numerically would corrupt
+Japanese text and emoji into long `\uffff...` fragments. DEL remains raw, as
+before, while C0 controls use the bounded `\u00xx` branch.
+
 NUL needs no branch: Unix environment variables and filenames cannot contain
 it, and Bash variables cannot store it. The POSIX-only synthetic tests create
-paths containing quote, backslash, tab, newline, and `0x01`, then strictly
-decode the hook output as UTF-8 JSON and compare the round-tripped path.
+paths containing Japanese text, an emoji, a warning sign, quote, backslash,
+tab, newline, and `0x01`, then strictly decode the hook output as UTF-8 JSON
+and compare the round-tripped path.
 
 ## Portable Time And Filesystem Behavior
 
@@ -128,8 +151,12 @@ or malformed values are unjudgeable and fail open before Bash arithmetic.
 
 The shared PowerShell harness runs the same behavioral cases against `.ps1`
 and `.sh` entrypoints. On a POSIX host, three additional cases exercise path
-JSON escaping. CI adds an `ubuntu-latest` Bash job and syntax check.
+JSON escaping. CI runs those checks on `ubuntu-latest` and on a finite
+`macos-15` job using the system `/bin/bash`.
 
-Actual macOS/Bash 3.2 execution is not yet verified. Compatibility is
-design-derived from the feature set and the BSD `stat` fallback; keep that
-limitation explicit until a real macOS run is recorded.
+PR #12 [Actions run 30199559874](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30199559874)
+verified macOS 15.7.7 and system Bash 3.2.57. The job passed the Darwin/Bash
+canary, readiness, plugin contract, all-script syntax gate, 13 launcher cases,
+and all 33 hook cases, including exact Japanese/emoji/control-byte JSON
+round-trips. Live Claude Code registration and real in-session journal behavior
+on macOS remain outside this synthetic CI scope.

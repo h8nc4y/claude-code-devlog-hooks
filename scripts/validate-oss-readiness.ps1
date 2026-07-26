@@ -2651,6 +2651,8 @@ jobs:
     name: Windows
   bash-hooks:
     name: Ubuntu
+  macos-bash-3-2:
+    name: macOS
 '@
     $cases = @(
         [pscustomobject]@{
@@ -2717,7 +2719,11 @@ jobs:
     foreach ($case in $cases) {
         $actual = Test-WorkflowEnvelopeSource `
             -Source $case.Source `
-            -ExpectedJobNames @('validate', 'bash-hooks')
+            -ExpectedJobNames @(
+                'validate',
+                'bash-hooks',
+                'macos-bash-3-2'
+            )
         if ($actual -ne $case.Expected) {
             Add-Failure "Workflow envelope validator regression failed: $($case.Name)."
         }
@@ -2843,6 +2849,216 @@ function Get-WorkflowSteps {
     }
 
     return $steps.ToArray()
+}
+
+function Test-WorkflowJobContract {
+    param(
+        [string[]]$Lines,
+        [string]$JobName,
+        [string]$ExpectedDisplayName,
+        [string]$ExpectedRunner,
+        [string]$ExpectedTimeout,
+        [object[]]$ExpectedSteps
+    )
+
+    # actual workflowとmutation fixtureが同じpureなexact契約を通るよう、
+    # job mappingの順序・値・step順序・全propertyを1か所で比較する。
+    if ($Lines.Count -eq 0 -or
+        $Lines[0] -cne "  ${JobName}:") {
+        return $false
+    }
+
+    $activeJobLines = @(
+        $Lines |
+            Where-Object { $_ -match '^    (?![ #\r\n]).+$' } |
+            ForEach-Object { $_.TrimEnd() }
+    )
+    $expectedJobLines = @(
+        "    name: $ExpectedDisplayName",
+        "    runs-on: $ExpectedRunner",
+        "    timeout-minutes: $ExpectedTimeout",
+        '    steps:'
+    )
+    if ($activeJobLines.Count -ne $expectedJobLines.Count -or
+        ($activeJobLines -join "`n") -cne
+            ($expectedJobLines -join "`n")) {
+        return $false
+    }
+
+    $stepStartCount = @(
+        $Lines | Where-Object { $_ -match '^      -[ \t]+' }
+    ).Count
+    $namedStepCount = @(
+        $Lines | Where-Object { $_ -match '^      -[ \t]+name:[ \t]+' }
+    ).Count
+    if ($stepStartCount -ne $namedStepCount) {
+        return $false
+    }
+
+    $actualSteps = @(Get-WorkflowSteps `
+        -Lines $Lines `
+        -JobName $JobName)
+    if ($actualSteps.Count -ne $ExpectedSteps.Count) {
+        return $false
+    }
+
+    for ($index = 0; $index -lt $ExpectedSteps.Count; $index++) {
+        $actualStep = $actualSteps[$index]
+        $expectedStep = $ExpectedSteps[$index]
+        if ($actualStep.Name -cne $expectedStep.Name) {
+            return $false
+        }
+
+        if (-not [string]::IsNullOrEmpty($expectedStep.Uses)) {
+            if ($actualStep.UsesCount -ne 1 -or
+                $actualStep.ShellCount -ne 0 -or
+                $actualStep.RunCount -ne 0 -or
+                $actualStep.Uses -cne $expectedStep.Uses) {
+                return $false
+            }
+            continue
+        }
+
+        if ($actualStep.UsesCount -ne 0 -or
+            $actualStep.ShellCount -ne 1 -or
+            $actualStep.RunCount -ne 1 -or
+            $actualStep.Shell -cne $expectedStep.Shell -or
+            $actualStep.Run -cne $expectedStep.Run) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Assert-MacOsWorkflowJobValidatorRegressions {
+    param(
+        [object[]]$ExpectedSteps
+    )
+
+    # job/runner/shell/required stepの削除・置換が、文字列の偶然一致で
+    # greenにならないことをcanonical fixtureのmutationで固定する。
+    $validSource = @'
+  macos-bash-3-2:
+    name: Test Bash hooks on macOS 15 / Bash 3.2
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Verify Darwin and system Bash 3.2
+        shell: /bin/bash --noprofile --norc -eo pipefail {0}
+        run: test "$(uname -s)" = Darwin && test "$BASH" = /bin/bash && [[ "$BASH_VERSION" == 3.2.* ]]
+
+      - name: Validate OSS readiness on macOS
+        shell: pwsh
+        run: ./scripts/validate-oss-readiness.ps1
+
+      - name: Test plugin package on macOS
+        shell: pwsh
+        run: ./scripts/test-plugin.ps1
+
+      - name: Check Bash syntax with system Bash 3.2
+        shell: /bin/bash --noprofile --norc -eo pipefail {0}
+        run: for script in hooks/*.sh scripts/*.sh; do /bin/bash --noprofile --norc -n "$script" || exit 1; done
+
+      - name: Test plugin launcher with system Bash 3.2
+        shell: /bin/bash --noprofile --norc -eo pipefail {0}
+        run: /bin/bash --noprofile --norc ./scripts/test-plugin-launcher.sh
+
+      - name: Test hooks with system Bash 3.2
+        shell: pwsh
+        run: ./scripts/test-hooks.ps1 -HookShell /bin/bash
+'@
+    $canaryBlock = @'
+
+      - name: Verify Darwin and system Bash 3.2
+        shell: /bin/bash --noprofile --norc -eo pipefail {0}
+        run: test "$(uname -s)" = Darwin && test "$BASH" = /bin/bash && [[ "$BASH_VERSION" == 3.2.* ]]
+'@
+    $cases = @(
+        [pscustomobject]@{
+            Name = 'valid'
+            Expected = $true
+            Source = $validSource
+        },
+        [pscustomobject]@{
+            Name = 'job-removed'
+            Expected = $false
+            Source = $validSource.Replace(
+                '  macos-bash-3-2:',
+                '  macos-bash-3-x:'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'runner-replaced'
+            Expected = $false
+            Source = $validSource.Replace(
+                '    runs-on: macos-15',
+                '    runs-on: macos-latest'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'timeout-replaced'
+            Expected = $false
+            Source = $validSource.Replace(
+                '    timeout-minutes: 10',
+                '    timeout-minutes: 20'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'shell-replaced'
+            Expected = $false
+            Source = $validSource.Replace(
+                '        shell: /bin/bash --noprofile --norc -eo pipefail {0}',
+                '        shell: bash'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'canary-step-deleted'
+            Expected = $false
+            Source = $validSource.Replace($canaryBlock, '')
+        },
+        [pscustomobject]@{
+            Name = 'launcher-command-replaced'
+            Expected = $false
+            Source = $validSource.Replace(
+                '/bin/bash --noprofile --norc ./scripts/test-plugin-launcher.sh',
+                'bash ./scripts/test-plugin-launcher.sh'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'syntax-command-shortened'
+            Expected = $false
+            Source = $validSource.Replace(
+                'for script in hooks/*.sh scripts/*.sh; do /bin/bash --noprofile --norc -n "$script" || exit 1; done',
+                '/bin/bash --noprofile --norc -n hooks/*.sh scripts/*.sh'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'hook-shell-path-replaced'
+            Expected = $false
+            Source = $validSource.Replace(
+                './scripts/test-hooks.ps1 -HookShell /bin/bash',
+                './scripts/test-hooks.ps1 -HookShell bash'
+            )
+        }
+    )
+
+    foreach ($case in $cases) {
+        $jobLines = @($case.Source -split '\r?\n')
+        $actual = Test-WorkflowJobContract `
+            -Lines $jobLines `
+            -JobName 'macos-bash-3-2' `
+            -ExpectedDisplayName 'Test Bash hooks on macOS 15 / Bash 3.2' `
+            -ExpectedRunner 'macos-15' `
+            -ExpectedTimeout '10' `
+            -ExpectedSteps $ExpectedSteps
+        if ($actual -ne $case.Expected) {
+            Add-Failure "macOS workflow job validator regression failed: $($case.Name)."
+        }
+    }
 }
 
 function Assert-WorkflowJobValue {
@@ -3065,6 +3281,9 @@ function Assert-BashCommonFile {
     Assert-FileContains -RelativePath $RelativePath -Pattern 'CLAUDE_DEVLOG_DIR' -Description 'devlog root resolution via CLAUDE_DEVLOG_DIR'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'CLAUDE_DEVLOG_LANG' -Description 'message language resolution via CLAUDE_DEVLOG_LANG'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'devlog_json_escape' -Description 'manual JSON string escaping'
+    Assert-FileContains -RelativePath $RelativePath -Pattern '\[\[:cntrl:\]\]\)' -Description 'C-locale control-byte classifier before numeric JSON escaping'
+    Assert-FileContains -RelativePath $RelativePath -Pattern '(?m)^\s*\*\) DEVLOG_ESCAPED=\$DEVLOG_ESCAPED\$ch ;;\s*$' -Description 'direct non-control UTF-8 byte passthrough'
+    Assert-FileNotContains -RelativePath $RelativePath -Pattern "(?m)^\s*\*\)\s*\r?\n\s*printf -v code '%d'" -Description 'numeric conversion in the non-control UTF-8 branch'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'stop_hook_active' -Description 'top-level boolean loop-guard parsing'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'stat -c %Y' -Description 'GNU stat mtime support'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'stat -f %m' -Description 'BSD stat mtime support'
@@ -3317,7 +3536,11 @@ $checkoutRevision = 'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
 Assert-WorkflowEnvelopeValidatorRegressions
 Assert-WorkflowEnvelope `
     -RelativePath $workflowPath `
-    -ExpectedJobNames @('validate', 'bash-hooks')
+    -ExpectedJobNames @(
+        'validate',
+        'bash-hooks',
+        'macos-bash-3-2'
+    )
 $windowsJobName = 'validate'
 $windowsJobLines = @(Get-WorkflowJobLines `
     -RelativePath $workflowPath `
@@ -3388,7 +3611,7 @@ Assert-WorkflowStep -Steps $ubuntuSteps -JobName $ubuntuJobName `
     -Run './scripts/validate-oss-readiness.ps1'
 Assert-WorkflowStep -Steps $ubuntuSteps -JobName $ubuntuJobName `
     -Name 'Check Bash syntax' -Shell 'bash' `
-    -Run 'bash --noprofile --norc -n hooks/*.sh scripts/*.sh'
+    -Run 'for script in hooks/*.sh scripts/*.sh; do bash --noprofile --norc -n "$script" || exit 1; done'
 Assert-WorkflowStep -Steps $ubuntuSteps -JobName $ubuntuJobName `
     -Name 'Test plugin package' -Shell 'pwsh' `
     -Run './scripts/test-plugin.ps1'
@@ -3408,6 +3631,100 @@ Assert-WorkflowStep -Steps $ubuntuSteps -JobName $ubuntuJobName `
     -Name 'Check whitespace' -Shell 'pwsh' `
     -Run 'git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD'
 
+$macOsJobName = 'macos-bash-3-2'
+$macOsExpectedSteps = @(
+    [pscustomobject]@{
+        Name = 'Check out repository'
+        Shell = ''
+        Run = ''
+        Uses = $checkoutRevision
+    },
+    [pscustomobject]@{
+        Name = 'Verify Darwin and system Bash 3.2'
+        Shell = '/bin/bash --noprofile --norc -eo pipefail {0}'
+        Run = 'test "$(uname -s)" = Darwin && test "$BASH" = /bin/bash && [[ "$BASH_VERSION" == 3.2.* ]]'
+        Uses = ''
+    },
+    [pscustomobject]@{
+        Name = 'Validate OSS readiness on macOS'
+        Shell = 'pwsh'
+        Run = './scripts/validate-oss-readiness.ps1'
+        Uses = ''
+    },
+    [pscustomobject]@{
+        Name = 'Test plugin package on macOS'
+        Shell = 'pwsh'
+        Run = './scripts/test-plugin.ps1'
+        Uses = ''
+    },
+    [pscustomobject]@{
+        Name = 'Check Bash syntax with system Bash 3.2'
+        Shell = '/bin/bash --noprofile --norc -eo pipefail {0}'
+        Run = 'for script in hooks/*.sh scripts/*.sh; do /bin/bash --noprofile --norc -n "$script" || exit 1; done'
+        Uses = ''
+    },
+    [pscustomobject]@{
+        Name = 'Test plugin launcher with system Bash 3.2'
+        Shell = '/bin/bash --noprofile --norc -eo pipefail {0}'
+        Run = '/bin/bash --noprofile --norc ./scripts/test-plugin-launcher.sh'
+        Uses = ''
+    },
+    [pscustomobject]@{
+        Name = 'Test hooks with system Bash 3.2'
+        Shell = 'pwsh'
+        Run = './scripts/test-hooks.ps1 -HookShell /bin/bash'
+        Uses = ''
+    }
+)
+Assert-MacOsWorkflowJobValidatorRegressions `
+    -ExpectedSteps $macOsExpectedSteps
+$macOsJobLines = @(Get-WorkflowJobLines `
+    -RelativePath $workflowPath `
+    -JobName $macOsJobName)
+$macOsSteps = @(Get-WorkflowSteps `
+    -Lines $macOsJobLines `
+    -JobName $macOsJobName)
+if (-not (Test-WorkflowJobContract `
+    -Lines $macOsJobLines `
+    -JobName $macOsJobName `
+    -ExpectedDisplayName 'Test Bash hooks on macOS 15 / Bash 3.2' `
+    -ExpectedRunner 'macos-15' `
+    -ExpectedTimeout '10' `
+    -ExpectedSteps $macOsExpectedSteps)) {
+    Add-Failure "Workflow job '$macOsJobName' failed its exact job/runner/shell/step contract."
+}
+Assert-WorkflowJobValue -Lines $macOsJobLines -JobName $macOsJobName `
+    -Key 'runs-on' -ExpectedValue 'macos-15'
+Assert-WorkflowJobValue -Lines $macOsJobLines -JobName $macOsJobName `
+    -Key 'timeout-minutes' -ExpectedValue '10'
+Assert-WorkflowStepCount -Steps $macOsSteps -JobName $macOsJobName `
+    -ExpectedCount 7
+Assert-WorkflowJobShape -Lines $macOsJobLines -JobName $macOsJobName `
+    -ExpectedStepCount 7 -ExpectedShellCount 6 -ExpectedRunCount 6
+Assert-WorkflowUsesStep -Steps $macOsSteps -JobName $macOsJobName `
+    -Name 'Check out repository' -Uses $checkoutRevision
+Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
+    -Name 'Verify Darwin and system Bash 3.2' `
+    -Shell '/bin/bash --noprofile --norc -eo pipefail {0}' `
+    -Run 'test "$(uname -s)" = Darwin && test "$BASH" = /bin/bash && [[ "$BASH_VERSION" == 3.2.* ]]'
+Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
+    -Name 'Validate OSS readiness on macOS' -Shell 'pwsh' `
+    -Run './scripts/validate-oss-readiness.ps1'
+Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
+    -Name 'Test plugin package on macOS' -Shell 'pwsh' `
+    -Run './scripts/test-plugin.ps1'
+Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
+    -Name 'Check Bash syntax with system Bash 3.2' `
+    -Shell '/bin/bash --noprofile --norc -eo pipefail {0}' `
+    -Run 'for script in hooks/*.sh scripts/*.sh; do /bin/bash --noprofile --norc -n "$script" || exit 1; done'
+Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
+    -Name 'Test plugin launcher with system Bash 3.2' `
+    -Shell '/bin/bash --noprofile --norc -eo pipefail {0}' `
+    -Run '/bin/bash --noprofile --norc ./scripts/test-plugin-launcher.sh'
+Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
+    -Name 'Test hooks with system Bash 3.2' -Shell 'pwsh' `
+    -Run './scripts/test-hooks.ps1 -HookShell /bin/bash'
+
 Assert-HookFile -RelativePath 'hooks/devlog-session-start.ps1'
 Assert-HookFile -RelativePath 'hooks/devlog-prompt-nudge.ps1'
 Assert-HookFile -RelativePath 'hooks/devlog-stop.ps1'
@@ -3421,6 +3738,8 @@ Assert-FileContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern 'CL
 Assert-FileContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern '(?m)^\s*exec ' -Description 'single-runtime process replacement'
 Assert-FileNotContains -RelativePath 'hooks/hooks.json' -Pattern '\$\{user_config\.' -Description 'shell userConfig interpolation'
 Assert-FileNotContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern '(?m)^\s*eval(?:\s|$)' -Description 'eval of configuration values'
+Assert-FileContains -RelativePath 'scripts/test-plugin-launcher.sh' -Pattern '(?m)^TEST_ROOT_RAW=\$\(mktemp -d ' -Description 'raw synthetic launcher fixture root'
+Assert-FileContains -RelativePath 'scripts/test-plugin-launcher.sh' -Pattern '(?m)^TEST_ROOT=\$\(CDPATH= cd -- "\$TEST_ROOT_RAW" && pwd -P\)' -Description 'physical synthetic launcher fixture root'
 
 Test-SkillFrontmatter
 Test-ExampleSettings -RelativePath 'examples/hooks-settings.json'

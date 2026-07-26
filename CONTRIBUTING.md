@@ -96,7 +96,7 @@ pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell   # Windows
 pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash
 pwsh -NoProfile -File ./scripts/test-scan-private-markers.ps1
 pwsh -NoProfile -File ./scripts/scan-private-markers.ps1
-bash --noprofile --norc -n ./hooks/*.sh ./scripts/*.sh
+for script in ./hooks/*.sh ./scripts/*.sh; do bash --noprofile --norc -n "$script" || exit 1; done
 git diff --check
 ```
 
@@ -108,7 +108,7 @@ Windows PowerShell can host the PowerShell scripts too
 (`powershell -NoProfile -ExecutionPolicy Bypass -File ...`). On macOS or
 Linux, install PowerShell 7 (`pwsh`) and skip the `-HookShell powershell`
 run — CI covers it on `windows-latest`. CI runs Bash behavior and syntax on
-Ubuntu 24.04.
+Ubuntu 24.04 and on GitHub-hosted macOS 15 with system `/bin/bash` 3.2.
 
 The scanner self-test also runs under both Windows PowerShell hosts and under
 PowerShell 7 on Ubuntu 24.04. It uses only disposable synthetic repositories

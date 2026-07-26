@@ -25,7 +25,14 @@ ORIGINAL_PATH=$PATH
 
 FAILURES=0
 CASE_NUMBER=0
-TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/devlog-plugin-test.XXXXXXXX") || exit 1
+TEST_ROOT_RAW=$(mktemp -d "${TMPDIR:-/tmp}/devlog-plugin-test.XXXXXXXX") ||
+    exit 1
+# macOS exposes TMPDIR through /var while pwd -P resolves it through
+# /private/var. Canonicalize once before expected fixture paths are derived.
+TEST_ROOT=$(CDPATH= cd -- "$TEST_ROOT_RAW" && pwd -P) || {
+    rm -rf -- "$TEST_ROOT_RAW"
+    exit 1
+}
 
 cleanup() {
     rm -rf -- "$TEST_ROOT"
