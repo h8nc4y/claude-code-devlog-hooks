@@ -82,6 +82,10 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Compacted `HANDOFF.md` to the current observable repository state, immediate
+  next step, and verification boundaries; durable history and contract details
+  stay owned by this changelog, the focused contract documents, and merged
+  pull requests.
 - Hardened private-marker scanning to inspect regular stage-0 index blobs and
   tracked worktree files independently, reject unsafe or changing repository
   states, and preserve the existing repository URL and local marker contracts.
