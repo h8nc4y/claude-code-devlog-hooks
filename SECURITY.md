@@ -30,12 +30,14 @@ What the hooks do — and everything they do:
   proceed silently; the hooks are designed to never block work on their
   own failure. The trade-off (fail-open hides bugs) is countered by the
   pipe-test suite, not by failing closed.
-- **Injection surface**: `session_id` from stdin is used in a filename
-  after replacing every character outside `[A-Za-z0-9_.-]`; the pipe tests
-  cover this. Message text is static apart from interpolated paths derived
-  from the devlog root. The Bash implementation parses only validated JSON
-  values and JSON-escapes quote, backslash, and C0 control bytes in paths; it
-  never evaluates input or path text as shell code.
+- **Injection surface**: only a non-empty JSON string `session_id` from stdin
+  is used in a filename, after replacing every character outside
+  `[A-Za-z0-9_.-]`; non-string values are unjudgeable and fail open. The pipe
+  tests cover both the type gate and filename reduction. Message text is
+  static apart from interpolated paths derived from the devlog root. The Bash
+  implementation parses only validated JSON values and JSON-escapes quote,
+  backslash, and C0 control bytes in paths; it never evaluates input or path
+  text as shell code.
 
 **Before installing, read the three entrypoints and their shared helper in
 `hooks/`.** Anything that asks Claude Code to execute a script on every turn

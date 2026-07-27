@@ -76,15 +76,15 @@ it.
 `devlog-common.sh` contains a bounded AWK parser for the top-level JSON object.
 It extracts only:
 
-- `session_id`, reduced to the marker filename alphabet
-  `[A-Za-z0-9_.-]`; and
+- `session_id`, accepted only as a non-empty JSON string and then reduced to
+  the marker filename alphabet `[A-Za-z0-9_.-]`; and
 - `stop_hook_active`, accepted only when its value is the literal JSON boolean
   `true`.
 
 The parser skips quoted and compound values, so same-named nested fields do not
-affect the protocol decision. Malformed input produces no parse result and the
-entrypoint follows its existing fail-open behavior (SessionStart uses the
-`unknown` marker; nudge and Stop stay silent).
+affect the protocol decision. Malformed input and non-string session ids follow
+the existing fail-open behavior (SessionStart uses the `unknown` marker; nudge
+and Stop stay silent).
 
 This parser is deliberately not a general JSON API. Protocol fields outside
 the two listed above are ignored.

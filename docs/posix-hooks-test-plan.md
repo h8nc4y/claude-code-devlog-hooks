@@ -10,11 +10,11 @@ are synthetic throwaway directories selected through `CLAUDE_DEVLOG_DIR`.
 
 | Target | Host | Command | Expected cases |
 | --- | --- | --- | --- |
-| PowerShell hooks | Windows, PowerShell 7 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell pwsh` | 30 shared |
-| PowerShell hooks | Windows, Windows PowerShell 5.1 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell` | 30 shared |
-| Bash hooks | Windows WSL or Git Bash | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 30 shared |
-| Bash hooks | Ubuntu CI | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 30 shared + 3 POSIX-path cases |
-| Bash hooks | macOS 15 CI, system Bash 3.2 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell /bin/bash` | 30 shared + 3 POSIX-path cases |
+| PowerShell hooks | Windows, PowerShell 7 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell pwsh` | 33 shared |
+| PowerShell hooks | Windows, Windows PowerShell 5.1 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell` | 33 shared |
+| Bash hooks | Windows WSL or Git Bash | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 33 shared |
+| Bash hooks | Ubuntu CI | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 33 shared + 3 POSIX-path cases |
+| Bash hooks | macOS 15 CI, system Bash 3.2 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell /bin/bash` | 33 shared + 3 POSIX-path cases |
 
 The Windows Bash run translates only synthetic fixture paths. WSL imports
 `CLAUDE_DEVLOG_DIR` and `CLAUDE_DEVLOG_LANG` through a child-only `WSLENV`;
@@ -23,16 +23,18 @@ adapter because their supported runtime is native macOS/Linux.
 
 ## Shared Behavioral Coverage
 
-### SessionStart (6)
+### SessionStart (7)
 
 - writes a near-current ASCII epoch marker and Japanese context;
 - prunes an eight-day-old marker while retaining a fresh one;
 - sanitizes unsafe session-id characters;
 - uses `unknown` when `session_id` is absent;
+- uses `unknown` without creating a coerced marker when `session_id` is not a
+  JSON string;
 - degrades invalid stdin to `unknown` while still injecting context; and
 - switches to English.
 
-### UserPromptSubmit (8)
+### UserPromptSubmit (9)
 
 - stays silent for a young session;
 - stays silent after a recent journal update;
@@ -40,13 +42,17 @@ adapter because their supported runtime is native macOS/Linux.
 - fires when the journal is stale;
 - stays silent without a marker;
 - stays silent without a session id;
+- stays silent for a non-string session id even when a coercion-collision
+  marker exists;
 - stays silent on corrupt marker content; and
 - switches to English.
 
-### Stop (10)
+### Stop (11)
 
 - allows when top-level `stop_hook_active` is the boolean `true`;
 - allows without a session id;
+- allows for a non-string session id even when a coercion-collision marker
+  exists;
 - allows without a marker;
 - blocks when the journal is missing;
 - blocks when the journal predates session start;
@@ -66,7 +72,7 @@ adapter because their supported runtime is native macOS/Linux.
   guard; and
 - a nested `stop_hook_active: true` does not activate the top-level guard.
 
-The logical total is 30 cases; multiple assertions within a case verify output
+The logical total is 33 cases; multiple assertions within a case verify output
 shape, language, path, and side effects together.
 
 ## POSIX-only JSON Path Coverage (3)
@@ -110,10 +116,10 @@ substitution of each required job, runner, shell, and step.
 
 ## Acceptance Criteria
 
-- All three shell targets pass the shared 30 cases.
-- Ubuntu passes all 33 cases and Bash syntax validation.
+- All three shell targets pass the shared 33 cases.
+- Ubuntu passes all 36 cases and Bash syntax validation.
 - The standard `macos-15` job proves Darwin plus system `/bin/bash` 3.2, then
-  passes the plugin package, launcher, all 33 Bash-hook cases, and syntax gate
+  passes the plugin package, launcher, all 36 Bash-hook cases, and syntax gate
   within a finite timeout.
 - No hook emits stderr in any behavioral case.
 - UTF-8 output and path JSON round-trips are exact.
@@ -121,6 +127,6 @@ substitution of each required job, runner, shell, and step.
 - PR #12 [Actions run 30199559874](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30199559874)
   passed all three jobs. The macOS 15.7.7 job used system Bash 3.2.57 and
   passed the canary, readiness, plugin contract, syntax, 13 launcher cases,
-  and all 33 hook cases.
+  and the then-current 33 hook cases.
 - Actual macOS live-session behavior remains outside this synthetic CI scope;
   only the synthetic system-Bash execution above is verified.

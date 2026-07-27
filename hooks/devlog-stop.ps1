@@ -59,7 +59,15 @@ try {
     # suppress this session's enforce-once block.
     if ($data -and ($data.stop_hook_active -is [bool]) -and $data.stop_hook_active) { exit 0 }
 
-    $sid = if ($data -and $data.session_id) { [string]$data.session_id } else { $null }
+    # Non-string protocol values are unjudgeable, not alternate spellings of
+    # a session id. Failing open here also matches the Bash implementation.
+    $sid = if ($data -and
+        ($data.session_id -is [string]) -and
+        -not [string]::IsNullOrEmpty($data.session_id)) {
+        [string]$data.session_id
+    } else {
+        $null
+    }
     if (-not $sid) { exit 0 }   # unknown session: allow
 
     $devlogDir = Resolve-DevlogRoot

@@ -280,7 +280,9 @@ escaping, and GNU/BSD `stat` portability — are documented with rationale in
 [docs/hook-engineering.md](docs/hook-engineering.md). The focused Bash
 architecture and matrix are in
 [docs/posix-hooks-design.md](docs/posix-hooks-design.md) and
-[docs/posix-hooks-test-plan.md](docs/posix-hooks-test-plan.md). Plugin
+[docs/posix-hooks-test-plan.md](docs/posix-hooks-test-plan.md). The shared
+protocol type boundary is specified in
+[docs/session-id-type-contract.md](docs/session-id-type-contract.md). Plugin
 requirements, architecture, detailed design, and verification are in
 [docs/plugin-requirements.md](docs/plugin-requirements.md),
 [docs/plugin-architecture.md](docs/plugin-architecture.md),
@@ -305,14 +307,15 @@ requirements, architecture, detailed design, and verification are in
   Git for Windows Bash, and under system Bash 3.2 on GitHub-hosted macOS 15;
   live Claude Code registration remains unverified.
 - Behavior is verified by the shared pipe-test suite
-  (`scripts/test-hooks.ps1`): 30 cross-runtime cases, plus three Bash-only
+  (`scripts/test-hooks.ps1`): 33 cross-runtime cases, plus three Bash-only
   POSIX path-escaping cases on `ubuntu-latest` and `macos-15`. Windows CI
   covers PowerShell 7 and Windows PowerShell 5.1; Ubuntu CI covers Bash, and
   macOS CI covers system `/bin/bash` 3.2 plus all-script syntax validation.
 - PR #12 [Actions run 30199559874](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30199559874)
-  passed all Windows, Ubuntu, and macOS jobs. Its macOS job ran on macOS
-  15.7.7 with system Bash 3.2.57 and passed the Darwin/Bash canary, readiness,
-  plugin contract, syntax gate, 13 launcher cases, and 33 hook cases.
+  passed all Windows, Ubuntu, and macOS jobs. At that revision, its macOS job
+  ran on macOS 15.7.7 with system Bash 3.2.57 and passed the Darwin/Bash
+  canary, readiness, plugin contract, syntax gate, 13 launcher cases, and the
+  then-current 33 hook cases (30 shared plus three POSIX-only).
 - The pre-parameterization ancestors of these hooks (same logic, hardcoded
   paths) have run in daily Claude Code use on Windows since 2026-06-15,
   most recently on Claude Code 2.1.207. The parameterized scripts in this
@@ -413,7 +416,7 @@ PowerShell 5.1 / Bash pipe-test targets, Bash syntax, the scan self-test, the
 private-marker scan, plugin package/launcher tests, and a whitespace check on
 pull requests and pushes to `main`. A finite `macos-15` job additionally proves
 Darwin plus system `/bin/bash` 3.2, then runs readiness, plugin, syntax,
-launcher, and all 33 Bash-hook cases. The strict Claude CLI validator is a
+launcher, and all 36 Bash-hook cases. The strict Claude CLI validator is a
 local release check because CI does not install or authenticate Claude Code.
 
 The scanner self-test retains the PowerShell host that starts it, so the
