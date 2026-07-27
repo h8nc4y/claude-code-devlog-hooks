@@ -58,7 +58,15 @@ try {
     $raw = [Console]::In.ReadToEnd()
     $data = $null
     if ($raw) { try { $data = $raw | ConvertFrom-Json } catch { $data = $null } }
-    $sid = if ($data -and $data.session_id) { [string]$data.session_id } else { $null }
+    # Non-string protocol values are unjudgeable, not alternate spellings of
+    # a session id. Failing open here also matches the Bash implementation.
+    $sid = if ($data -and
+        ($data.session_id -is [string]) -and
+        -not [string]::IsNullOrEmpty($data.session_id)) {
+        [string]$data.session_id
+    } else {
+        $null
+    }
     if (-not $sid) { exit 0 }
 
     $devlogDir = Resolve-DevlogRoot

@@ -368,6 +368,15 @@ Add-Case 'session-start-no-session-id-uses-unknown' {
     Assert-Condition ($json.hookSpecificOutput.hookEventName -eq 'SessionStart') 'Context should still be emitted without a session_id.'
 }
 
+Add-Case 'session-start-non-string-session-id-uses-unknown' {
+    $caseRoot = New-CaseRoot
+    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":123}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Condition ($result.ExitCode -eq 0) 'SessionStart should exit 0 for a non-string session_id.'
+    $markerDir = Join-Path $caseRoot '.devlog-markers'
+    Assert-Condition (Test-Path -LiteralPath (Join-Path $markerDir 'unknown.start')) 'A non-string session_id should use only the unknown marker.'
+    Assert-Condition (-not (Test-Path -LiteralPath (Join-Path $markerDir '123.start'))) 'A non-string session_id must not be coerced into a marker name.'
+}
+
 Add-Case 'session-start-invalid-stdin-still-injects' {
     $caseRoot = New-CaseRoot
     $result = Invoke-Hook -HookPath $hookSessionStart -StdinText 'this is not json' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
@@ -435,6 +444,13 @@ Add-Case 'nudge-silent-without-session-id' {
     Assert-Allowed -Result $result -Label 'Nudge without a session_id'
 }
 
+Add-Case 'nudge-silent-with-non-string-session-id' {
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId '123' -Content "$((Get-NowEpoch) - 2000)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookNudge -StdinText '{"session_id":123}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Allowed -Result $result -Label 'Nudge with a non-string session_id'
+}
+
 Add-Case 'nudge-silent-on-corrupt-marker' {
     $caseRoot = New-CaseRoot -WithMarkerDir
     Set-Marker -DevlogRoot $caseRoot -SessionId 's1' -Content 'not-a-number' | Out-Null
@@ -463,6 +479,13 @@ Add-Case 'stop-allows-without-session-id' {
     $caseRoot = New-CaseRoot -WithMarkerDir
     $result = Invoke-Hook -HookPath $hookStop -StdinText '{}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
     Assert-Allowed -Result $result -Label 'Stop without a session_id'
+}
+
+Add-Case 'stop-allows-with-non-string-session-id' {
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId '123' -Content "$((Get-NowEpoch) - 100)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":123}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Allowed -Result $result -Label 'Stop with a non-string session_id'
 }
 
 Add-Case 'stop-allows-without-marker' {

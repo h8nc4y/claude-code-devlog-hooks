@@ -68,7 +68,15 @@ try {
     # Id-less sessions share the 'unknown.start' marker; that is harmless
     # because the Stop and nudge hooks exit early without a session_id and
     # never read it — the shared marker just ages out via pruning.
-    $sid = if ($data -and $data.session_id) { [string]$data.session_id } else { 'unknown' }
+    # Keep protocol identity type-safe: numbers, booleans, arrays, and objects
+    # must not be coerced into marker names shared with real string sessions.
+    $sid = if ($data -and
+        ($data.session_id -is [string]) -and
+        -not [string]::IsNullOrEmpty($data.session_id)) {
+        [string]$data.session_id
+    } else {
+        'unknown'
+    }
 
     $devlogDir = Resolve-DevlogRoot
     $lang = Resolve-MessageLang
