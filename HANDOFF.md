@@ -20,11 +20,15 @@
 
 ## Current position
 
-- 最新のruntime変更はPR #12で、GitHub-hosted macOS 15 / system Bash 3.2
-  検証を統合済み。
-- 同変更のmerge後main run
-  [30200474950](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30200474950)
-  はWindows、Ubuntu、macOSの全jobが成功。
+- 最新のruntime変更はPR #14で、PowerShell hookの非文字列
+  `session_id`暗黙変換を廃止し、Bashと同じ非空JSON string境界へ統合済み。
+- PR run
+  [30243078410](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30243078410)
+  とmerge後main run
+  [30243433675](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30243433675)
+  は、Windows、Ubuntu、macOSの全jobが初回成功。
+- 最終mainは`c320fd45c06ab6394715d8608929567b3d296e82`。独立reviewは
+  P0 / P1 / P2 / P3各0、CLEARANCE YES。
 - 現在の正本に既知の未修正source defectはない。Git / GitHub / CIは外部状態のため、
   次の着手時に必ず再計測する。
 
@@ -38,6 +42,7 @@
 
 - `hooks/`: PowerShell / Bash hook実装。
 - `scripts/test-hooks.ps1`: cross-runtime hook回帰。
+- `docs/session-id-type-contract.md`: session identityの型境界とfail-open契約。
 - `scripts/validate-oss-readiness.ps1`: repository / workflow exact contract。
 - `scripts/test-scan-private-markers.ps1`: hostile scanner回帰。
 - `README.md` / `SECURITY.md` / `CHANGELOG.md`: 公開契約と永続履歴。
