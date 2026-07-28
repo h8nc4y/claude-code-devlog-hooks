@@ -12,8 +12,9 @@ One behavioral goal ("keep the journal updated, little and often") maps to
 three hooks with different pressure levels:
 
 1. **SessionStart — inform.** Inject the routine via
-   `hookSpecificOutput.additionalContext` and record state (a session-start
-   marker) for the other layers.
+   `hookSpecificOutput.additionalContext` and, only after establishing a
+   non-empty string session identity, record state (a session-start marker)
+   for the other layers.
 2. **UserPromptSubmit — nudge, never block.** High-frequency,
    judgment-based behaviors ("append when something is worth recording")
    must not be enforced with blocks — that becomes a nag that users disable.
@@ -30,7 +31,7 @@ journal is stale" Stop hook harasses from the very first turn and never
 stops. The **enforce-once pattern** fixes this:
 
 - SessionStart writes the session start time (unix epoch) to a marker file
-  keyed by `session_id`.
+  keyed by a validated non-empty string `session_id`.
 - Stop compares: `daily journal mtime >= session start epoch` means "already
   updated this session" — allow. Otherwise block once with instructions.
 - After the journal is written once, every later turn in the session passes
@@ -42,8 +43,8 @@ Two guards keep this safe:
   true`, a Stop hook already blocked and the agent is continuing because of
   it. Exit 0 immediately — otherwise you can build an infinite block loop.
 - **Missing marker means allow**: if the marker does not exist (hook
-  installed mid-session, marker pruned, SessionStart failed), the state is
-  unjudgeable. Fail open.
+  installed mid-session, marker pruned, SessionStart failed, or session
+  identity was not established), the state is unjudgeable. Fail open.
 
 ## Fail-Open Is Mandatory — And It Hides Bugs
 
@@ -70,6 +71,13 @@ disclosed, because a silently disarmed Stop hook looks exactly like a
 working one on a session where the journal was updated. The hook appends a
 ⚠ line to the injected context naming the unwritable directory, instead of
 degrading invisibly.
+
+The same disclosure applies when SessionStart cannot establish identity from
+malformed stdin or a missing, empty, or non-string `session_id`. It still
+injects the routine plus a fixed localized warning, but creates no marker
+directory, writes no marker, and performs no pruning. The warning must not
+reflect raw stdin, session values, or secret-like values; UserPromptSubmit and
+Stop remain silent for the same inputs.
 
 The broader consequence: **fail-open hides bugs.** A broken hook exits 0
 and is indistinguishable from a hook that decided to allow. A real incident
@@ -126,7 +134,9 @@ paths without installing jq, Python, or Node.js. Standard utilities used are
 
 - **Input JSON is not evaluated.** A bounded AWK parser reads only the
   top-level `session_id` and `stop_hook_active` fields, skips nested/string
-  values, and returns no result on malformed input. The latter fails open.
+  values, and returns no result on malformed input. Malformed input and a
+  missing, empty, or non-string session id cannot establish identity and
+  therefore fail open without marker side effects.
 - **Output path escaping is byte-based.** Quote/backslash are escaped and C0
   controls become `\u00xx`; UTF-8 bytes pass through unchanged. POSIX-only
   tests use synthetic paths containing quote, backslash, tab, newline, and
@@ -250,8 +260,10 @@ for Bash.
 - **Markers live under the devlog root**, so wiping or moving the root
   never leaves stale state elsewhere, and the hooks stay portable.
 - **Marker pruning**: SessionStart fires on startup, resume, and compact,
-  so markers accumulate; each run prunes markers older than
-  `$MarkerRetentionDays` / `MARKER_RETENTION_DAYS` (default 7 days).
+  so markers accumulate; each run with an established identity prunes markers
+  older than `$MarkerRetentionDays` / `MARKER_RETENTION_DAYS` (default 7
+  days). Unjudgeable identity input neither creates the directory nor prunes
+  prior markers.
 - **The double gate for nudges**: nudge only when (session age >=
   threshold) AND (journal staleness >= threshold), both against the same
   `$ThresholdSec` / `THRESHOLD_SEC` (default 20 minutes). One gate alone

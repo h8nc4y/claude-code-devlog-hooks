@@ -20,18 +20,14 @@
 
 ## Current position
 
-- 最新のruntime変更はPR #14（merge
-  `c320fd45c06ab6394715d8608929567b3d296e82`）で、PowerShell hookの
-  非文字列`session_id`暗黙変換を廃止し、Bashと同じ非空JSON string境界へ統合済み。
-- PR run
-  [30243078410](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30243078410)
-  とmerge後main run
-  [30243433675](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30243433675)
-  は、Windows、Ubuntu、macOSの全jobが初回成功。
-- 後続のhandoff同期PR #15とmerge後main run
-  [30244283759](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30244283759)
-  も3 OSの全jobが初回成功。runtime変更の独立reviewはP0 / P1 / P2 / P3各0、
-  CLEARANCE YES。
+- SessionStartは空でないJSON stringの`session_id`を確立できた場合だけmarkerを
+  書込み・pruneする。不正stdin、欠落、空文字、非文字列ではmarker stateを変更せず、
+  通常contextへ固定・非反射のJA/EN警告を追加する。nudge/Stopは同じ入力を無音allowする。
+- `scripts/test-hooks.ps1`は上記4境界、side effect不在、raw/session/secret-like sentinel
+  非反射を含む38共有ケースを持つ。POSIX hostではpath escaping 3件を加えた41件になる。
+- 直前のruntime境界PR #14（merge
+  `c320fd45c06ab6394715d8608929567b3d296e82`）とhandoff同期PR #15の3 OS CIは成功済み。
+  現行契約の可変なPR/run情報はmerge済みPRとActionsを都度再確認する。
 - 現在の正本に既知の未修正source defectはない。Git / GitHub / CIは外部状態のため、
   可変の「最終main」SHAやopen件数をここへ固定せず、次の着手時に必ず再計測する。
 

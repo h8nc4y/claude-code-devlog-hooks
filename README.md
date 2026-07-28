@@ -16,7 +16,7 @@ often — with exactly one hard backstop per session.
 
 | Layer | Hook event | Behavior |
 | --- | --- | --- |
-| Routine | `SessionStart` | Injects the journaling discipline; records session start time as a marker (auto-pruned after 7 days) |
+| Routine | `SessionStart` | Injects the journaling discipline; after a non-empty string session identity is established, records session start time as a marker (auto-pruned after 7 days) |
 | Reminder | `UserPromptSubmit` | Double-gated: only when the session is ≥ 20 min old AND today's journal is ≥ 20 min stale, injects a gentle nudge. Otherwise silent. Never blocks |
 | Backstop | `Stop` | If today's journal was not touched since session start, blocks turn-end once with instructions (enforce-once via marker + mtime comparison; `stop_hook_active` prevents loops) |
 
@@ -307,7 +307,7 @@ requirements, architecture, detailed design, and verification are in
   Git for Windows Bash, and under system Bash 3.2 on GitHub-hosted macOS 15;
   live Claude Code registration remains unverified.
 - Behavior is verified by the shared pipe-test suite
-  (`scripts/test-hooks.ps1`): 33 cross-runtime cases, plus three Bash-only
+  (`scripts/test-hooks.ps1`): 38 cross-runtime cases, plus three Bash-only
   POSIX path-escaping cases on `ubuntu-latest` and `macos-15`. Windows CI
   covers PowerShell 7 and Windows PowerShell 5.1; Ubuntu CI covers Bash, and
   macOS CI covers system `/bin/bash` 3.2 plus all-script syntax validation.
@@ -345,8 +345,10 @@ requirements, architecture, detailed design, and verification are in
   therefore requires Git Bash on native Windows. PowerShell-only Windows
   remains supported through the manual settings fallback.
 - **The Stop layer relies on the marker**: without it (mid-session install,
-  pruned marker) the hooks fail open — no block, no nudge — rather than
-  guess.
+  pruned marker, or unestablished session identity) the hooks fail open — no
+  block, no nudge — rather than guess. A SessionStart with malformed input or
+  a missing, empty, or non-string `session_id` injects a fixed warning and
+  creates/prunes no marker state.
 - **Unwritable devlog root**: SessionStart still injects the routine but
   appends a visible ⚠ notice that enforcement is off for the session (the
   marker could not be written); nothing is leaked to stderr.
@@ -366,8 +368,9 @@ Details and rationale: [docs/hook-engineering.md](docs/hook-engineering.md).
 
 Claude Code で「開発日誌を毎セッション・こまめに書く」習慣を作る 3層 hook です。
 
-- **SessionStart** … 日誌運用の指示をコンテキストへ注入し、セッション開始時刻を
-  マーカー保存(7日で自動掃除)。
+- **SessionStart** … 日誌運用の指示をコンテキストへ注入し、空でない文字列の
+  セッションIDを確立できた場合だけ、開始時刻をマーカー保存(7日で自動掃除)。
+  判定不能な入力ではマーカー状態を作らず、Stop/催促が無効だと固定文で警告。
 - **UserPromptSubmit** … 二重ゲート(セッション経過 ≥ 20分 かつ 当日ログ未更新
   ≥ 20分)が成立したときだけ、ブロックせずそっと追記を促す。普段は無音。
 - **Stop** … 当日ログ未更新のままターンを終えようとすると一度だけブロック
@@ -416,7 +419,7 @@ PowerShell 5.1 / Bash pipe-test targets, Bash syntax, the scan self-test, the
 private-marker scan, plugin package/launcher tests, and a whitespace check on
 pull requests and pushes to `main`. A finite `macos-15` job additionally proves
 Darwin plus system `/bin/bash` 3.2, then runs readiness, plugin, syntax,
-launcher, and all 36 Bash-hook cases. The strict Claude CLI validator is a
+launcher, and all 41 Bash-hook cases. The strict Claude CLI validator is a
 local release check because CI does not install or authenticate Claude Code.
 
 The scanner self-test retains the PowerShell host that starts it, so the

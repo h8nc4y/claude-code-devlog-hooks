@@ -63,50 +63,46 @@ try {
     $data = $null
     if ($raw) { try { $data = $raw | ConvertFrom-Json } catch { $data = $null } }
 
-    # SessionStart still runs with a placeholder id when the input is unusable:
-    # injecting the routine is useful even if the marker cannot be per-session.
-    # Id-less sessions share the 'unknown.start' marker; that is harmless
-    # because the Stop and nudge hooks exit early without a session_id and
-    # never read it — the shared marker just ages out via pruning.
-    # Keep protocol identity type-safe: numbers, booleans, arrays, and objects
-    # must not be coerced into marker names shared with real string sessions.
-    $sid = if ($data -and
+    # Establish identity only from the protocol's non-empty string form.
+    # Unjudgeable input still receives the routine, but must not create or
+    # prune enforcement-looking marker state.
+    $identityEstablished = [bool]($data -and
         ($data.session_id -is [string]) -and
-        -not [string]::IsNullOrEmpty($data.session_id)) {
-        [string]$data.session_id
-    } else {
-        'unknown'
-    }
+        -not [string]::IsNullOrEmpty($data.session_id))
+    $sid = if ($identityEstablished) { [string]$data.session_id } else { '' }
 
     $devlogDir = Resolve-DevlogRoot
     $lang = Resolve-MessageLang
     $markerDir = Join-Path $devlogDir '.devlog-markers'
 
-    $safeSid = ($sid -replace '[^A-Za-z0-9_.-]', '_')
-    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $enforcementOn = $false
+    if ($identityEstablished) {
+        $safeSid = ($sid -replace '[^A-Za-z0-9_.-]', '_')
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-    # Marker writes get their own catch: on an unwritable devlog root the
-    # routine below is still worth injecting, but the user must be told that
-    # the enforcement layer is off — a silently disarmed Stop hook looks
-    # exactly like a working one.
-    $enforcementOn = $true
-    try {
-        if (-not (Test-Path -LiteralPath $markerDir)) {
-            # -Force creates missing parents, including the devlog root on first run.
-            New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
+        # Marker writes get their own catch: on an unwritable devlog root the
+        # routine below is still worth injecting, but the user must be told
+        # that enforcement is off.
+        try {
+            if (-not (Test-Path -LiteralPath $markerDir)) {
+                # -Force creates missing parents, including the devlog root on first run.
+                New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
+            }
+            Set-Content -LiteralPath (Join-Path $markerDir "$safeSid.start") -Value "$now" -NoNewline -Encoding ascii
+            $enforcementOn = $true
+        } catch {
+            $enforcementOn = $false
         }
-        Set-Content -LiteralPath (Join-Path $markerDir "$safeSid.start") -Value "$now" -NoNewline -Encoding ascii
-    } catch {
-        $enforcementOn = $false
-    }
 
-    # Prune old markers so the directory does not grow forever.
-    try {
-        $cutoff = (Get-Date).ToUniversalTime().AddDays(-$MarkerRetentionDays)
-        Get-ChildItem -LiteralPath $markerDir -Filter '*.start' -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTimeUtc -lt $cutoff } |
-            Remove-Item -Force -ErrorAction SilentlyContinue
-    } catch { }
+        # Pruning is allowed only after identity is established. Otherwise an
+        # identity-free event could mutate unrelated session state.
+        try {
+            $cutoff = (Get-Date).ToUniversalTime().AddDays(-$MarkerRetentionDays)
+            Get-ChildItem -LiteralPath $markerDir -Filter '*.start' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTimeUtc -lt $cutoff } |
+                Remove-Item -Force -ErrorAction SilentlyContinue
+        } catch { }
+    }
 
     $today = Get-Date -Format 'yyyy-MM-dd'
     $daily = Join-Path (Join-Path $devlogDir 'daily') "$today.md"
@@ -132,7 +128,13 @@ try {
 "@
     }
 
-    if (-not $enforcementOn) {
+    if (-not $identityEstablished) {
+        if ($lang -eq 'en') {
+            $ctx += "`n" + "⚠ Session identity could not be established. Stop-hook enforcement and staleness nudges are OFF for this session."
+        } else {
+            $ctx += "`n" + "⚠ セッションIDを確立できないため、このセッションでは Stop hook の強制と催促は無効です。"
+        }
+    } elseif (-not $enforcementOn) {
         if ($lang -eq 'en') {
             $ctx += "`n" + "⚠ Could not write the session marker under $markerDir — the Stop-hook enforcement and staleness nudges are OFF for this session. Check that CLAUDE_DEVLOG_DIR points to a writable directory."
         } else {

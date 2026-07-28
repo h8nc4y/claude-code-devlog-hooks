@@ -21,7 +21,7 @@ DEFAULT_LANG=ja
 MARKER_RETENTION_DAYS=7
 
 main() {
-    local raw_input safe_session marker_dir marker_path enforcement_on
+    local raw_input identity_established safe_session marker_dir marker_path enforcement_on
     local daily topics_dir context
 
     raw_input=$(cat) || raw_input=
@@ -31,29 +31,35 @@ main() {
         DEVLOG_STOP_ACTIVE=0
     fi
 
-    safe_session=$DEVLOG_SESSION_ID
-    [ "$DEVLOG_HAS_SESSION" = "1" ] && [ -n "$safe_session" ] || safe_session=unknown
+    identity_established=0
+    safe_session=
+    if [ "$DEVLOG_HAS_SESSION" = "1" ] && [ -n "$DEVLOG_SESSION_ID" ]; then
+        identity_established=1
+        safe_session=$DEVLOG_SESSION_ID
+    fi
 
     devlog_resolve_root || return 0
     devlog_resolve_lang
-    devlog_now_epoch || return 0
     devlog_today || return 0
 
     marker_dir=$DEVLOG_ROOT/.devlog-markers
-    marker_path=$marker_dir/$safe_session.start
-    enforcement_on=1
+    enforcement_on=0
 
-    # Marker failure disarms the later layers, so continue with context but
-    # disclose the degraded enforcement in the same structured response.
-    if mkdir -p "$marker_dir" 2>/dev/null &&
-        printf '%s' "$DEVLOG_NOW" >"$marker_path" 2>/dev/null; then
-        :
-    else
-        enforcement_on=0
+    if [ "$identity_established" = "1" ]; then
+        devlog_now_epoch || return 0
+        marker_path=$marker_dir/$safe_session.start
+
+        # Marker failure disarms the later layers, so continue with context but
+        # disclose the degraded enforcement in the structured response.
+        if mkdir -p "$marker_dir" 2>/dev/null &&
+            printf '%s' "$DEVLOG_NOW" >"$marker_path" 2>/dev/null; then
+            enforcement_on=1
+        fi
+
+        # Only an established identity may mutate marker state. Pruning then
+        # remains best-effort and must never suppress the useful context.
+        devlog_prune_markers "$marker_dir" "$DEVLOG_NOW" "$MARKER_RETENTION_DAYS" || :
     fi
-
-    # Pruning is best-effort and must never suppress the useful context.
-    devlog_prune_markers "$marker_dir" "$DEVLOG_NOW" "$MARKER_RETENTION_DAYS" || :
 
     daily=$DEVLOG_ROOT/daily/$DEVLOG_TODAY.md
     topics_dir=$DEVLOG_ROOT/topics
@@ -74,7 +80,15 @@ main() {
 - 再発・汎用の知見は topics/<slug>.md に蒸留し [[wikilink]] で繋ぐ。secret / token / 実データは書かない。"
     fi
 
-    if [ "$enforcement_on" -ne 1 ]; then
+    if [ "$identity_established" -ne 1 ]; then
+        if [ "$DEVLOG_LANG" = "en" ]; then
+            context="$context
+⚠ Session identity could not be established. Stop-hook enforcement and staleness nudges are OFF for this session."
+        else
+            context="$context
+⚠ セッションIDを確立できないため、このセッションでは Stop hook の強制と催促は無効です。"
+        fi
+    elif [ "$enforcement_on" -ne 1 ]; then
         if [ "$DEVLOG_LANG" = "en" ]; then
             context="$context
 ⚠ Could not write the session marker under $marker_dir — the Stop-hook enforcement and staleness nudges are OFF for this session. Check that CLAUDE_DEVLOG_DIR points to a writable directory."
