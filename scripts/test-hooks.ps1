@@ -84,6 +84,9 @@ Write-Host "Testing hooks with: $shellPath ($shellFamily $shellVersion)"
 $jaNeedle = [regex]::Unescape('\u958b\u767a\u30ed\u30b0')   # kanji for "dev log"
 $warningSign = [string][char]0x26A0
 $journalEmoji = [char]::ConvertFromUtf32(0x1F4D3)
+$identityWarningJa = [regex]::Unescape('\u26a0 \u30bb\u30c3\u30b7\u30e7\u30f3ID\u3092\u78ba\u7acb\u3067\u304d\u306a\u3044\u305f\u3081\u3001\u3053\u306e\u30bb\u30c3\u30b7\u30e7\u30f3\u3067\u306f Stop hook \u306e\u5f37\u5236\u3068\u50ac\u4fc3\u306f\u7121\u52b9\u3067\u3059\u3002')
+$identityWarningEn = [regex]::Unescape('\u26a0 Session identity could not be established. Stop-hook enforcement and staleness nudges are OFF for this session.')
+$syntheticPrivateSentinel = 'SYNTHETIC_PRIVATE_VALUE_DO_NOT_REFLECT'
 
 function Get-NowEpoch {
     return [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -202,19 +205,25 @@ function Invoke-Hook {
     }
 }
 
-function ConvertFrom-HookStdout {
+function ConvertTo-StrictUtf8Text {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
 
     if ($Bytes.Length -eq 0) {
         throw 'Assertion failed: expected JSON output but stdout was empty.'
     }
+    $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
+    return $strictUtf8.GetString($Bytes)
+}
+
+function ConvertFrom-HookStdout {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+
     # Structured hook output must be a bare JSON object with no BOM or prefix.
     if ($Bytes[0] -ne 0x7B) {
         throw ("Assertion failed: stdout does not start with '{{' (first byte: 0x{0:X2})." -f $Bytes[0])
     }
     # Strict decoder: throws on any invalid UTF-8 sequence.
-    $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
-    $text = $strictUtf8.GetString($Bytes)
+    $text = ConvertTo-StrictUtf8Text -Bytes $Bytes
     return ($text | ConvertFrom-Json)
 }
 
@@ -237,6 +246,37 @@ function Assert-Allowed {
     Assert-Condition ($Result.ExitCode -eq 0) "$Label should exit 0 (got $($Result.ExitCode))."
     Assert-Condition ($Result.StdoutBytes.Length -eq 0) "$Label should produce no stdout (got $($Result.StdoutBytes.Length) bytes)."
     Assert-Condition ([string]::IsNullOrWhiteSpace($Result.Stderr)) "$Label should produce no stderr (got: $($Result.Stderr))."
+}
+
+function Assert-UnjudgeableSessionStart {
+    # Identity failures still return the routine, but the fixed warning must
+    # disclose disabled enforcement without reflecting any protocol input.
+    param(
+        [Parameter(Mandatory = $true)]$Result,
+        [Parameter(Mandatory = $true)][string]$DevlogRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedWarning,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [string[]]$SensitiveNeedles = @()
+    )
+
+    Assert-Condition ($Result.ExitCode -eq 0) "$Label should exit 0 (got $($Result.ExitCode))."
+    Assert-Condition ([string]::IsNullOrWhiteSpace($Result.Stderr)) "$Label should produce no stderr (got: $($Result.Stderr))."
+    $stdoutText = ConvertTo-StrictUtf8Text -Bytes $Result.StdoutBytes
+    $json = ConvertFrom-HookStdout -Bytes $Result.StdoutBytes
+    Assert-Condition ($json.hookSpecificOutput.hookEventName -eq 'SessionStart') "$Label should emit SessionStart context."
+    $context = [string]$json.hookSpecificOutput.additionalContext
+    Assert-Condition ($context.EndsWith($ExpectedWarning, [System.StringComparison]::Ordinal)) "$Label should end with the exact fixed identity warning."
+
+    foreach ($needle in $SensitiveNeedles) {
+        Assert-Condition ($stdoutText.IndexOf($needle, [System.StringComparison]::Ordinal) -lt 0) "$Label must not reflect the synthetic private sentinel to stdout."
+        Assert-Condition ($Result.Stderr.IndexOf($needle, [System.StringComparison]::Ordinal) -lt 0) "$Label must not reflect the synthetic private sentinel to stderr."
+        $markerDir = Join-Path $DevlogRoot '.devlog-markers'
+        if (Test-Path -LiteralPath $markerDir) {
+            foreach ($entry in Get-ChildItem -LiteralPath $markerDir -Force) {
+                Assert-Condition ($entry.Name.IndexOf($needle, [System.StringComparison]::Ordinal) -lt 0) "$Label must not reflect the synthetic private sentinel to a marker name."
+            }
+        }
+    }
 }
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claude-code-devlog-hooks-test-' + [System.Guid]::NewGuid().ToString('N'))
@@ -359,31 +399,45 @@ Add-Case 'session-start-sanitizes-session-id' {
     Assert-Condition (Test-Path -LiteralPath (Join-Path (Join-Path $caseRoot '.devlog-markers') 'we_ird_id.start')) 'Unsafe characters in session_id should be replaced for the marker filename.'
 }
 
-Add-Case 'session-start-no-session-id-uses-unknown' {
-    $caseRoot = New-CaseRoot
-    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText '{}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
-    Assert-Condition ($result.ExitCode -eq 0) 'SessionStart should exit 0.'
-    Assert-Condition (Test-Path -LiteralPath (Join-Path (Join-Path $caseRoot '.devlog-markers') 'unknown.start')) 'Missing session_id should fall back to the unknown marker.'
-    $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
-    Assert-Condition ($json.hookSpecificOutput.hookEventName -eq 'SessionStart') 'Context should still be emitted without a session_id.'
+Add-Case 'session-start-missing-session-id-disables-enforcement' {
+    # Pre-seed an old marker: an unjudgeable SessionStart must not prune it or
+    # create an enforcement-looking unknown marker.
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    $oldMarker = Set-Marker -DevlogRoot $caseRoot -SessionId 'keep-stale' -Content '1000'
+    (Get-Item -LiteralPath $oldMarker).LastWriteTimeUtc = [DateTime]::UtcNow.AddDays(-8)
+    $stdin = '{"other":"SYNTHETIC_PRIVATE_VALUE_DO_NOT_REFLECT"}'
+    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText $stdin -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+
+    Assert-UnjudgeableSessionStart -Result $result -DevlogRoot $caseRoot -ExpectedWarning $identityWarningJa -Label 'SessionStart without a session_id' -SensitiveNeedles @($syntheticPrivateSentinel)
+    Assert-Condition (Test-Path -LiteralPath $oldMarker) 'An unjudgeable SessionStart must not prune existing markers.'
+    Assert-Condition (-not (Test-Path -LiteralPath (Join-Path (Join-Path $caseRoot '.devlog-markers') 'unknown.start'))) 'An unjudgeable SessionStart must not create an unknown marker.'
 }
 
-Add-Case 'session-start-non-string-session-id-uses-unknown' {
-    $caseRoot = New-CaseRoot
-    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":123}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
-    Assert-Condition ($result.ExitCode -eq 0) 'SessionStart should exit 0 for a non-string session_id.'
+Add-Case 'session-start-empty-session-id-disables-enforcement' {
+    $caseRoot = New-CaseRoot -LeaveMissing
+    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":""}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+
+    Assert-UnjudgeableSessionStart -Result $result -DevlogRoot $caseRoot -ExpectedWarning $identityWarningJa -Label 'SessionStart with an empty session_id'
+    Assert-Condition (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.devlog-markers'))) 'An empty session_id must not create a marker directory.'
+}
+
+Add-Case 'session-start-non-string-session-id-disables-enforcement' {
+    $caseRoot = New-CaseRoot -LeaveMissing
+    $stdin = '{"session_id":{"private":"SYNTHETIC_PRIVATE_VALUE_DO_NOT_REFLECT"}}'
+    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText $stdin -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+
+    Assert-UnjudgeableSessionStart -Result $result -DevlogRoot $caseRoot -ExpectedWarning $identityWarningJa -Label 'SessionStart with a non-string session_id' -SensitiveNeedles @($syntheticPrivateSentinel)
     $markerDir = Join-Path $caseRoot '.devlog-markers'
-    Assert-Condition (Test-Path -LiteralPath (Join-Path $markerDir 'unknown.start')) 'A non-string session_id should use only the unknown marker.'
-    Assert-Condition (-not (Test-Path -LiteralPath (Join-Path $markerDir '123.start'))) 'A non-string session_id must not be coerced into a marker name.'
+    Assert-Condition (-not (Test-Path -LiteralPath $markerDir)) 'A non-string session_id must not create a marker directory.'
 }
 
-Add-Case 'session-start-invalid-stdin-still-injects' {
-    $caseRoot = New-CaseRoot
-    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText 'this is not json' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
-    Assert-Condition ($result.ExitCode -eq 0) 'SessionStart should exit 0 on unparseable stdin.'
-    Assert-Condition (Test-Path -LiteralPath (Join-Path (Join-Path $caseRoot '.devlog-markers') 'unknown.start')) 'Unparseable stdin should degrade to the unknown marker.'
-    $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
-    Assert-Condition ($json.hookSpecificOutput.additionalContext.Length -gt 0) 'Context should still be emitted on unparseable stdin.'
+Add-Case 'session-start-malformed-stdin-disables-enforcement' {
+    $caseRoot = New-CaseRoot -LeaveMissing
+    $stdin = '{"session_id":"SYNTHETIC_PRIVATE_VALUE_DO_NOT_REFLECT"'
+    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText $stdin -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+
+    Assert-UnjudgeableSessionStart -Result $result -DevlogRoot $caseRoot -ExpectedWarning $identityWarningJa -Label 'SessionStart with malformed stdin' -SensitiveNeedles @($syntheticPrivateSentinel)
+    Assert-Condition (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.devlog-markers'))) 'Malformed stdin must not create a marker directory.'
 }
 
 Add-Case 'session-start-en-language' {
@@ -392,6 +446,17 @@ Add-Case 'session-start-en-language' {
     $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
     Assert-Condition ($json.hookSpecificOutput.additionalContext.Contains('Dev journal routine')) 'CLAUDE_DEVLOG_LANG=en should switch the context to English.'
     Assert-Condition (-not $json.hookSpecificOutput.additionalContext.Contains($jaNeedle)) 'English context should not contain the Japanese needle.'
+}
+
+Add-Case 'session-start-unjudgeable-en-language' {
+    $caseRoot = New-CaseRoot -LeaveMissing
+    $result = Invoke-Hook -HookPath $hookSessionStart -StdinText '{}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot; CLAUDE_DEVLOG_LANG = 'en' }
+
+    Assert-UnjudgeableSessionStart -Result $result -DevlogRoot $caseRoot -ExpectedWarning $identityWarningEn -Label 'English SessionStart without a session_id'
+    $json = ConvertFrom-HookStdout -Bytes $result.StdoutBytes
+    Assert-Condition ($json.hookSpecificOutput.additionalContext.Contains('Dev journal routine')) 'English unjudgeable context should keep the English routine.'
+    Assert-Condition (-not $json.hookSpecificOutput.additionalContext.Contains($identityWarningJa)) 'English unjudgeable context should not contain the Japanese identity warning.'
+    Assert-Condition (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.devlog-markers'))) 'English unjudgeable input must not create a marker directory.'
 }
 
 # --- UserPromptSubmit (nudge) cases ------------------------------------------
@@ -444,11 +509,25 @@ Add-Case 'nudge-silent-without-session-id' {
     Assert-Allowed -Result $result -Label 'Nudge without a session_id'
 }
 
+Add-Case 'nudge-silent-with-empty-session-id' {
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId 'unknown' -Content "$((Get-NowEpoch) - 2000)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookNudge -StdinText '{"session_id":""}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Allowed -Result $result -Label 'Nudge with an empty session_id'
+}
+
 Add-Case 'nudge-silent-with-non-string-session-id' {
     $caseRoot = New-CaseRoot -WithMarkerDir
     Set-Marker -DevlogRoot $caseRoot -SessionId '123' -Content "$((Get-NowEpoch) - 2000)" | Out-Null
     $result = Invoke-Hook -HookPath $hookNudge -StdinText '{"session_id":123}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
     Assert-Allowed -Result $result -Label 'Nudge with a non-string session_id'
+}
+
+Add-Case 'nudge-silent-on-malformed-stdin' {
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId 's1' -Content "$((Get-NowEpoch) - 2000)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookNudge -StdinText '{"session_id":"s1"' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Allowed -Result $result -Label 'Nudge with malformed stdin'
 }
 
 Add-Case 'nudge-silent-on-corrupt-marker' {
@@ -479,6 +558,13 @@ Add-Case 'stop-allows-without-session-id' {
     $caseRoot = New-CaseRoot -WithMarkerDir
     $result = Invoke-Hook -HookPath $hookStop -StdinText '{}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
     Assert-Allowed -Result $result -Label 'Stop without a session_id'
+}
+
+Add-Case 'stop-allows-with-empty-session-id' {
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    Set-Marker -DevlogRoot $caseRoot -SessionId 'unknown' -Content "$((Get-NowEpoch) - 100)" | Out-Null
+    $result = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":""}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    Assert-Allowed -Result $result -Label 'Stop with an empty session_id'
 }
 
 Add-Case 'stop-allows-with-non-string-session-id' {

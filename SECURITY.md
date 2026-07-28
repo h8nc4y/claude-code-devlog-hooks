@@ -21,20 +21,27 @@ What the hooks do — and everything they do:
 - **Filesystem reads**: the hook source/helper, stdin JSON provided by Claude
   Code, session marker files, and the mtime of today's journal file. Runtime
   state stays under the configured devlog root (`CLAUDE_DEVLOG_DIR`).
-- **Filesystem writes**: marker files under `<devlog root>/.devlog-markers/`
-  (plus creating that directory, and the devlog root itself on first run).
-  The hooks never write journal content and never touch paths outside the
-  devlog root.
+- **Filesystem writes**: after SessionStart establishes a non-empty string
+  session identity, marker files under `<devlog root>/.devlog-markers/` (plus
+  creating that directory and the devlog root on first run). Unjudgeable
+  identity input creates and prunes no marker state. The hooks never write
+  journal content and never touch paths outside the devlog root.
 - **Environment**: read `CLAUDE_DEVLOG_DIR` and `CLAUDE_DEVLOG_LANG` only.
-- **Failure direction**: fail-open. Any error allows the session to
-  proceed silently; the hooks are designed to never block work on their
-  own failure. The trade-off (fail-open hides bugs) is countered by the
-  pipe-test suite, not by failing closed.
+- **Failure direction**: fail-open. Any error allows the session to proceed.
+  UserPromptSubmit and Stop fail silently. SessionStart returns its routine
+  context and, when identity is unestablished or marker writing fails, a fixed
+  warning that enforcement is off. The trade-off (fail-open hides bugs) is
+  countered by the pipe-test suite, not by failing closed.
 - **Injection surface**: only a non-empty JSON string `session_id` from stdin
   is used in a filename, after replacing every character outside
-  `[A-Za-z0-9_.-]`; non-string values are unjudgeable and fail open. The pipe
-  tests cover both the type gate and filename reduction. Message text is
-  static apart from interpolated paths derived from the devlog root. The Bash
+  `[A-Za-z0-9_.-]`. Malformed stdin and missing, empty, or non-string values
+  are unjudgeable: SessionStart creates/prunes no marker state and emits only
+  a fixed non-reflective identity warning, while nudge/Stop allow silently.
+  For those unjudgeable cases, raw stdin, session values, and secret-like
+  values are never reflected in output, stderr, or marker names. The pipe tests
+  cover the type gate, no-side-effect contract, and filename reduction.
+  Routine message text is static apart from interpolated paths derived from
+  the devlog root. The Bash
   implementation parses only validated JSON values and JSON-escapes quote,
   backslash, and C0 control bytes in paths; it never evaluates input or path
   text as shell code.

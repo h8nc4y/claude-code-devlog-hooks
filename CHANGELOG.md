@@ -83,9 +83,10 @@ The format loosely follows Keep a Changelog conventions.
 ### Changed
 
 - Unified the PowerShell and Bash protocol boundary so only a non-empty JSON
-  string `session_id` can select a session marker. Non-string values now use
-  the `unknown` SessionStart marker and fail open silently in nudge/Stop
-  processing instead of being coerced into a colliding marker name.
+  string `session_id` can establish session identity and select a marker.
+  Malformed stdin and missing, empty, or non-string ids now create/prune no
+  marker state; SessionStart adds a fixed non-reflective JA/EN warning that
+  enforcement is off, while nudge/Stop fail open silently.
 - Compacted `HANDOFF.md` to the current observable repository state, immediate
   next step, and verification boundaries; durable history and contract details
   stay owned by this changelog, the focused contract documents, and merged

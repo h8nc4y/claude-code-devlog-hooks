@@ -45,7 +45,9 @@ The Bash and PowerShell variants share these observable invariants:
 5. `CLAUDE_DEVLOG_LANG` accepts only `ja` or `en`; any other value falls back
    to the script default.
 6. SessionStart writes an ASCII epoch marker and prunes markers older than
-   seven days.
+   seven days only after establishing a non-empty string session identity.
+   Unjudgeable identity input injects a fixed warning and changes no marker
+   state.
 7. UserPromptSubmit nudges only when both the session age and journal
    staleness reach 20 minutes.
 8. Stop blocks only while the journal mtime is older than the session marker.
@@ -82,9 +84,10 @@ It extracts only:
   `true`.
 
 The parser skips quoted and compound values, so same-named nested fields do not
-affect the protocol decision. Malformed input and non-string session ids follow
-the existing fail-open behavior (SessionStart uses the `unknown` marker; nudge
-and Stop stay silent).
+affect the protocol decision. Malformed input and missing, empty, or non-string
+session ids cannot establish identity. SessionStart injects the routine plus a
+fixed non-reflective JA/EN warning but creates/prunes no marker state; nudge and
+Stop stay silent.
 
 This parser is deliberately not a general JSON API. Protocol fields outside
 the two listed above are ignored.
@@ -131,8 +134,8 @@ or malformed values are unjudgeable and fail open before Bash arithmetic.
 
 | Failure | SessionStart | UserPromptSubmit | Stop |
 | --- | --- | --- | --- |
-| Invalid stdin JSON | inject with `unknown` marker | silent allow | silent allow |
-| Missing session id | inject with `unknown` marker | silent allow | silent allow |
+| Invalid stdin JSON | inject fixed identity warning; no marker state | silent allow | silent allow |
+| Missing/empty/non-string session id | inject fixed identity warning; no marker state | silent allow | silent allow |
 | Root/marker write failure | inject warning; enforcement off | not applicable | not applicable |
 | Missing/corrupt marker | not applicable | silent allow | silent allow |
 | `date`/`stat`/read error | silent allow | silent allow | silent allow |
@@ -143,7 +146,10 @@ or malformed values are unjudgeable and fail open before Bash arithmetic.
 - Hooks make no network calls.
 - Hooks read only stdin, their own helper, the session marker, and today's
   journal mtime. They never read journal content.
-- Hooks write only the marker directory under the configured devlog root.
+- Hooks write only the marker directory under the configured devlog root, and
+  only after a valid session identity is established.
+- Identity warnings are fixed strings and never reflect stdin, session ids, or
+  secret-like values.
 - Examples and tests use synthetic paths and content.
 - The helper does not evaluate JSON text, shell code, or path contents.
 
