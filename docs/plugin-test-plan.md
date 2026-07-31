@@ -7,7 +7,7 @@ therefore cover three layers independently:
 
 1. static package/schema contract;
 2. launcher selection and configuration bridge;
-3. unchanged hook behavior on every existing runtime.
+3. shared hook behavior on every existing runtime.
 
 All launcher fixtures use synthetic executables and throwaway directories.
 They do not load a plugin into Claude Code or touch a real journal.
@@ -82,14 +82,19 @@ Configuration cases:
 
 ## Existing behavior matrix
 
-Run `scripts/test-hooks.ps1` unchanged against:
+Run the 65 shared cases in `scripts/test-hooks.ps1` against:
 
 - PowerShell 7 (`pwsh`);
 - Windows PowerShell 5.1 (`powershell`);
-- Bash (`bash`), with Ubuntu running the extra POSIX-path cases.
+- Bash (`bash`), with Ubuntu/macOS running the three extra POSIX-path cases
+  (68 total).
 
 This proves that the dispatcher does not substitute for behavior coverage of
-the selected hooks.
+the selected hooks. The fixed case-count guard also prevents a deleted case
+from being mistaken for a green suite. Boundary assertions cover exact/max+1
+input bytes, parser work budgets, portable encoded session identity, canonical
+bounded marker reads, invalid UTF-8, full-duplex harness I/O, pending-write
+timeout cleanup, and a 1 MiB-per-pipe capture cap.
 
 ## Required verification
 
@@ -108,5 +113,8 @@ git diff --check
 ```
 
 Also run staged Gitleaks and Semgrep through the host security guard. A live
-plugin installation, marketplace publication, real Vault access, and actual
-macOS/Bash 3.2 execution remain explicitly unverified.
+plugin installation, marketplace publication, and real Vault access remain
+explicitly unverified. PR #18
+[Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
+passed all Windows, Ubuntu, and macOS jobs for the current 65/68-case patch,
+including system Bash 3.2.57, launcher, readiness, and scanner gates.

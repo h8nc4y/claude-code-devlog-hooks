@@ -37,13 +37,18 @@ Every change to `hooks/*.ps1` or `hooks/*.sh` must preserve:
    invisible.
 2. **Raw UTF-8 stdout** via `Write-Utf8Stdout` (PowerShell) or `printf`
    (Bash); never let a console encoding layer rewrite the bytes.
-3. **No `Set-StrictMode` in PowerShell hooks** — the logic relies on absent JSON
-   properties evaluating to `$null`; strict mode silently disables the
-   hook through the fail-open catch (rationale in
+3. **Do not add `Set-StrictMode` to production hooks without cross-runtime
+   fail-open proof.** The shared parser represents optional protocol state
+   explicitly through `HasSession` and `StopActive`; never restore dynamic
+   `ConvertFrom-Json` member access. A new strict-mode error can be swallowed by
+   the outer fail-open catch and silently disable behavior. Test harnesses and
+   validators should remain strict (rationale in
    [docs/hook-engineering.md](docs/hook-engineering.md)).
-4. **Source encoding by runtime**: UTF-8 BOM on `.ps1` hook files (Windows
-   PowerShell 5.1), UTF-8 without BOM on `.sh` files (the shebang must be the
-   first bytes). `validate-oss-readiness.ps1` checks both.
+4. **Source encoding by runtime**: non-ASCII `.ps1` hook entrypoints use a
+   UTF-8 BOM for Windows PowerShell 5.1. ASCII-only shared helpers and test
+   scripts may remain BOM-less. `.sh` files use UTF-8 without BOM because the
+   shebang must be the first bytes. `validate-oss-readiness.ps1` checks these
+   role-specific rules.
 5. **Single-variable configuration**: all paths derive from the devlog
    root; no machine-specific absolute paths.
 6. **Enforce-once semantics** for Stop (marker + mtime comparison,
@@ -57,8 +62,8 @@ Every change to `hooks/*.ps1` or `hooks/*.sh` must preserve:
    choose an executable, script path, or additional command argument.
 
 If a change alters observable behavior, add or adjust a case in
-`scripts/test-hooks.ps1` and run it against both implementations. The shared
-33 cases must stay equivalent; POSIX-only filesystem cases may be conditional.
+`scripts/test-hooks.ps1` and run it against both implementations. The 65
+shared cases must stay equivalent; POSIX-only filesystem cases may be conditional.
 Behavior claims in this repository are backed by pipe tests, not by assertion.
 
 The Bash port intentionally has no jq/Python/Node runtime dependency. Before

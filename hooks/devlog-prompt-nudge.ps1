@@ -14,7 +14,7 @@
 # - Fail-open AND fail-silent: any error means "allow, say nothing on stderr"
 #   (always exit 0; cmdlet errors promoted to terminating below).
 # - Output is written as raw UTF-8 bytes (prevents mojibake).
-# - No Set-StrictMode: absent JSON properties must evaluate to $null.
+# - Protocol input is parsed by the sibling shared helper using exact names.
 # - Saved as UTF-8 with BOM for Windows PowerShell 5.1 compatibility.
 
 # --- Configuration -----------------------------------------------------------
@@ -55,19 +55,12 @@ function Resolve-MessageLang {
 }
 
 try {
-    $raw = [Console]::In.ReadToEnd()
-    $data = $null
-    if ($raw) { try { $data = $raw | ConvertFrom-Json } catch { $data = $null } }
+    . (Join-Path $PSScriptRoot 'devlog-common.ps1')
+    $inputData = Read-DevlogHookInput
     # Non-string protocol values are unjudgeable, not alternate spellings of
     # a session id. Failing open here also matches the Bash implementation.
-    $sid = if ($data -and
-        ($data.session_id -is [string]) -and
-        -not [string]::IsNullOrEmpty($data.session_id)) {
-        [string]$data.session_id
-    } else {
-        $null
-    }
-    if (-not $sid) { exit 0 }
+    if ($null -eq $inputData -or -not $inputData.HasSession) { exit 0 }
+    $sid = [string]$inputData.SessionId
 
     $devlogDir = Resolve-DevlogRoot
     $lang = Resolve-MessageLang
@@ -76,11 +69,10 @@ try {
     # Gate 1: session age. No marker (hook installed mid-session, marker
     # pruned, or SessionStart never ran) means "cannot judge" - stay silent.
     $markerDir = Join-Path $devlogDir '.devlog-markers'
-    $safeSid = ($sid -replace '[^A-Za-z0-9_.-]', '_')
-    $markerPath = Join-Path $markerDir "$safeSid.start"
+    $markerPath = Join-Path $markerDir (Get-DevlogMarkerFileName -SessionId $sid)
     if (-not (Test-Path -LiteralPath $markerPath)) { exit 0 }
-    $startEpoch = 0
-    try { $startEpoch = [int64]((Get-Content -LiteralPath $markerPath -Raw).Trim()) } catch { exit 0 }
+    $startEpoch = Read-DevlogMarkerEpoch -Path $markerPath
+    if ($null -eq $startEpoch) { exit 0 }
     if (($now - $startEpoch) -lt $ThresholdSec) { exit 0 }   # session too young
 
     # Gate 2: journal staleness. A recently touched journal means no nudge.

@@ -16,7 +16,7 @@ often — with exactly one hard backstop per session.
 
 | Layer | Hook event | Behavior |
 | --- | --- | --- |
-| Routine | `SessionStart` | Injects the journaling discipline; after a non-empty string session identity is established, records session start time as a marker (auto-pruned after 7 days) |
+| Routine | `SessionStart` | Injects the journaling discipline; after a marker-safe 1-64 character session identity is established, records session start time under a portable encoded marker key (auto-pruned after 7 days) |
 | Reminder | `UserPromptSubmit` | Double-gated: only when the session is ≥ 20 min old AND today's journal is ≥ 20 min stale, injects a gentle nudge. Otherwise silent. Never blocks |
 | Backstop | `Stop` | If today's journal was not touched since session start, blocks turn-end once with instructions (enforce-once via marker + mtime comparison; `stop_hook_active` prevents loops) |
 
@@ -41,10 +41,12 @@ often — with exactly one hard backstop per session.
   - Bash 3.2+ for the single plugin launcher. On native Windows, install Git
     for Windows so `bash` is available; PowerShell-only Windows can use the
     manual fallback below.
+- Any plugin or manual path that executes the Bash hooks also requires the
+  standard Unix utilities `awk`, `date`, `dirname`, `head`, `iconv`, `mkdir`,
+  `od`, `rm`, and `stat`.
 - Manual settings fallback: choose one hook runtime:
   - PowerShell: `pwsh` (PowerShell 7, any platform) or Windows PowerShell 5.1.
-  - macOS/Linux: Bash 3.2+ plus standard Unix `awk`, `cat`, `date`, `mkdir`,
-    `rm`, and `stat`.
+  - macOS/Linux: Bash 3.2+ and the standard Unix utilities listed above.
 - No network access and no jq, Python, Node.js, or package installation at
   hook runtime.
 
@@ -87,7 +89,8 @@ PowerShell registration below; it remains a first-class supported path.
 ### Manual settings fallback
 
 Read the three event entrypoints for your chosen runtime in [hooks/](hooks)
-(and `devlog-common.sh` for Bash) first — you are about to run them on every
+(plus `devlog-common.ps1` for PowerShell or `devlog-common.sh` for Bash) first
+— you are about to run them on every
 session event.
 
 1. Clone the repository to a **space-free path** (spaces would complicate
@@ -276,7 +279,8 @@ skill. For the manual fallback, copy it under your skills directory (for example
 
 The mechanics — enforce-once markers, the nudge double gate, fail-open plus
 pipe-testing, raw UTF-8 byte output, PowerShell 5.1 compatibility, Bash JSON
-escaping, and GNU/BSD `stat` portability — are documented with rationale in
+escaping, exact-case/unique input fields, and GNU/BSD `stat` portability — are
+documented with rationale in
 [docs/hook-engineering.md](docs/hook-engineering.md). The focused Bash
 architecture and matrix are in
 [docs/posix-hooks-design.md](docs/posix-hooks-design.md) and
@@ -307,8 +311,12 @@ requirements, architecture, detailed design, and verification are in
   Git for Windows Bash, and under system Bash 3.2 on GitHub-hosted macOS 15;
   live Claude Code registration remains unverified.
 - Behavior is verified by the shared pipe-test suite
-  (`scripts/test-hooks.ps1`): 38 cross-runtime cases, plus three Bash-only
-  POSIX path-escaping cases on `ubuntu-latest` and `macos-15`. Windows CI
+  (`scripts/test-hooks.ps1`): 65 cross-runtime cases, plus three Bash-only
+  POSIX path/UTF-8 cases on `ubuntu-latest` and `macos-15`. The fixed suite
+  count, full-duplex/deadline probes, and 1 MiB-per-pipe capture caps prevent
+  silent case loss, pipe deadlock, and unbounded harness output. Exact
+  byte/work budgets, portable session-key collision rejection, Unicode,
+  strict JSON, and bounded marker reads are exercised. Windows CI
   covers PowerShell 7 and Windows PowerShell 5.1; Ubuntu CI covers Bash, and
   macOS CI covers system `/bin/bash` 3.2 plus all-script syntax validation.
 - PR #12 [Actions run 30199559874](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30199559874)
@@ -316,13 +324,20 @@ requirements, architecture, detailed design, and verification are in
   ran on macOS 15.7.7 with system Bash 3.2.57 and passed the Darwin/Bash
   canary, readiness, plugin contract, syntax gate, 13 launcher cases, and the
   then-current 33 hook cases (30 shared plus three POSIX-only).
+  This is historical runner/Bash 3.2 evidence and does not by itself verify
+  later 65/68-case protocol changes; each later patch needs its own CI result.
+- PR #18 [Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
+  verified the exact-protocol patch on all three jobs. Windows passed all 65
+  cases with PowerShell 7 and Windows PowerShell 5.1; Ubuntu passed all 68 with
+  Bash 5.2.21; macOS passed all 68 with system Bash 3.2.57. The same run also
+  passed readiness, plugin, launcher, syntax, and private-marker scanner gates.
 - The pre-parameterization ancestors of these hooks (same logic, hardcoded
   paths) have run in daily Claude Code use on Windows since 2026-06-15,
   most recently on Claude Code 2.1.207. The parameterized scripts in this
   repository are verified by the pipe-test suite; their live in-session
   registration was not separately re-exercised at release time.
 - The Bash hooks are pipe-tested on Linux and GitHub-hosted macOS 15. System
-  Bash 3.2 execution is verified by the synthetic macOS job above; live Claude
+  Bash 3.2 execution is verified by the PR #18 synthetic macOS job; live Claude
   Code registration and real in-session journal behavior on macOS/Linux remain
   unverified.
 
@@ -347,8 +362,20 @@ requirements, architecture, detailed design, and verification are in
 - **The Stop layer relies on the marker**: without it (mid-session install,
   pruned marker, or unestablished session identity) the hooks fail open — no
   block, no nudge — rather than guess. A SessionStart with malformed input or
-  a missing, empty, or non-string `session_id` injects a fixed warning and
+  a missing, empty, non-string, unsafe, or oversized `session_id` injects a fixed warning and
   creates/prunes no marker state.
+- **Session identity is intentionally narrow**: only 1-64 characters from
+  `[A-Za-z0-9_.-]` are accepted. Accepted ASCII bytes are encoded as lowercase
+  hex below the legacy-disjoint `~sid-` namespace. This keeps `A`/`a`, Windows
+  reserved names, and legacy raw markers distinct on case-insensitive filesystems.
+  Other values fail open instead of being replaced into a colliding filename.
+- **Marker-key migration is fail-open**: hooks from this revision do not read
+  legacy raw/sanitized marker names. A session started before the update may
+  temporarily have no new marker, so nudge/Stop allow it; retention pruning
+  removes old marker files later.
+- **Input work is bounded**: stdin is at most 1,048,576 bytes, container depth
+  128, property names 256 Unicode scalars, numbers 1,024 characters, and JSON
+  values 4,096. A budget violation fails open without protocol side effects.
 - **Unwritable devlog root**: SessionStart still injects the routine but
   appends a visible ⚠ notice that enforcement is off for the session (the
   marker could not be written); nothing is leaked to stderr.
@@ -357,8 +384,8 @@ Details and rationale: [docs/hook-engineering.md](docs/hook-engineering.md).
 
 ## Non-Goals
 
-- No pure POSIX `sh` port. Bash 3.2+ is the portability floor so JSON path
-  escaping stays dependency-free.
+- No pure POSIX `sh` port. Bash 3.2+ is the portability floor; runtime helpers
+  remain limited to the standard utilities listed in Requirements.
 - No marketplace publication, submission, authentication, or live plugin
   installation.
 - No automatic journal writing. The hooks enforce the habit; the content is
@@ -368,8 +395,9 @@ Details and rationale: [docs/hook-engineering.md](docs/hook-engineering.md).
 
 Claude Code で「開発日誌を毎セッション・こまめに書く」習慣を作る 3層 hook です。
 
-- **SessionStart** … 日誌運用の指示をコンテキストへ注入し、空でない文字列の
-  セッションIDを確立できた場合だけ、開始時刻をマーカー保存(7日で自動掃除)。
+- **SessionStart** … 日誌運用の指示をコンテキストへ注入し、`[A-Za-z0-9_.-]`の
+  1〜64文字のセッションIDを確立できた場合だけ、開始時刻を衝突しない符号化
+  マーカーへ保存(7日で自動掃除)。
   判定不能な入力ではマーカー状態を作らず、Stop/催促が無効だと固定文で警告。
 - **UserPromptSubmit** … 二重ゲート(セッション経過 ≥ 20分 かつ 当日ログ未更新
   ≥ 20分)が成立したときだけ、ブロックせずそっと追記を促す。普段は無音。
@@ -419,7 +447,7 @@ PowerShell 5.1 / Bash pipe-test targets, Bash syntax, the scan self-test, the
 private-marker scan, plugin package/launcher tests, and a whitespace check on
 pull requests and pushes to `main`. A finite `macos-15` job additionally proves
 Darwin plus system `/bin/bash` 3.2, then runs readiness, plugin, syntax,
-launcher, and all 41 Bash-hook cases. The strict Claude CLI validator is a
+launcher, and all 68 Bash-hook cases. The strict Claude CLI validator is a
 local release check because CI does not install or authenticate Claude Code.
 
 The scanner self-test retains the PowerShell host that starts it, so the

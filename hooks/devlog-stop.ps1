@@ -11,7 +11,7 @@
 # - Fail-open AND fail-silent: any error or unjudgeable state means "allow,
 #   say nothing on stderr" (always exit 0; cmdlet errors promoted below).
 # - Output is written as raw UTF-8 bytes (prevents mojibake).
-# - No Set-StrictMode: absent JSON properties must evaluate to $null.
+# - Protocol input is parsed by the sibling shared helper using exact names.
 # - Saved as UTF-8 with BOM for Windows PowerShell 5.1 compatibility.
 
 # --- Configuration -----------------------------------------------------------
@@ -49,26 +49,18 @@ function Resolve-MessageLang {
 }
 
 try {
-    $raw = [Console]::In.ReadToEnd()
-    $data = $null
-    if ($raw) { try { $data = $raw | ConvertFrom-Json } catch { $data = $null } }
+    . (Join-Path $PSScriptRoot 'devlog-common.ps1')
+    $inputData = Read-DevlogHookInput
+    if ($null -eq $inputData) { exit 0 }
 
     # Already continuing because a Stop hook blocked: allow, to avoid loops.
-    # Require the protocol's actual JSON boolean. PowerShell's loose equality
-    # would otherwise coerce the defensive string "true" to $true and silently
-    # suppress this session's enforce-once block.
-    if ($data -and ($data.stop_hook_active -is [bool]) -and $data.stop_hook_active) { exit 0 }
+    # The helper exposes true only for the exact field and a JSON boolean.
+    if ($inputData.StopActive) { exit 0 }
 
     # Non-string protocol values are unjudgeable, not alternate spellings of
     # a session id. Failing open here also matches the Bash implementation.
-    $sid = if ($data -and
-        ($data.session_id -is [string]) -and
-        -not [string]::IsNullOrEmpty($data.session_id)) {
-        [string]$data.session_id
-    } else {
-        $null
-    }
-    if (-not $sid) { exit 0 }   # unknown session: allow
+    if (-not $inputData.HasSession) { exit 0 }
+    $sid = [string]$inputData.SessionId
 
     $devlogDir = Resolve-DevlogRoot
     $lang = Resolve-MessageLang
@@ -76,12 +68,11 @@ try {
     # No marker (hook installed mid-session, marker pruned, or SessionStart
     # never ran) means "cannot judge" - allow.
     $markerDir = Join-Path $devlogDir '.devlog-markers'
-    $safeSid = ($sid -replace '[^A-Za-z0-9_.-]', '_')
-    $markerPath = Join-Path $markerDir "$safeSid.start"
+    $markerPath = Join-Path $markerDir (Get-DevlogMarkerFileName -SessionId $sid)
     if (-not (Test-Path -LiteralPath $markerPath)) { exit 0 }
 
-    $startEpoch = 0
-    try { $startEpoch = [int64]((Get-Content -LiteralPath $markerPath -Raw).Trim()) } catch { exit 0 }
+    $startEpoch = Read-DevlogMarkerEpoch -Path $markerPath
+    if ($null -eq $startEpoch) { exit 0 }
 
     $today = Get-Date -Format 'yyyy-MM-dd'
     $daily = Join-Path (Join-Path $devlogDir 'daily') "$today.md"

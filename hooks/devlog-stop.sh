@@ -16,10 +16,9 @@ DEFAULT_DEVLOG_DIR=
 DEFAULT_LANG=ja
 
 main() {
-    local raw_input marker_path daily mtime reason
+    local marker_path daily mtime reason
 
-    raw_input=$(cat) || return 0
-    devlog_parse_input "$raw_input" || return 0
+    devlog_parse_input || return 0
 
     # Claude Code sets a real JSON boolean when continuing from a prior Stop
     # block. Returning silently here prevents an infinite block loop.
@@ -28,9 +27,10 @@ main() {
 
     devlog_resolve_root || return 0
     devlog_resolve_lang
+    devlog_marker_name "$DEVLOG_SESSION_ID" || return 0
 
     # Missing/corrupt markers cannot establish session start, so fail open.
-    marker_path=$DEVLOG_ROOT/.devlog-markers/$DEVLOG_SESSION_ID.start
+    marker_path=$DEVLOG_ROOT/.devlog-markers/$DEVLOG_MARKER_NAME
     devlog_read_marker "$marker_path" || return 0
 
     devlog_today || return 0

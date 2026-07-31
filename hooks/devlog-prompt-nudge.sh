@@ -16,19 +16,19 @@ DEFAULT_LANG=ja
 THRESHOLD_SEC=1200
 
 main() {
-    local raw_input marker_path daily minutes message
+    local marker_path daily minutes message
 
-    raw_input=$(cat) || return 0
-    devlog_parse_input "$raw_input" || return 0
+    devlog_parse_input || return 0
     [ "$DEVLOG_HAS_SESSION" = "1" ] && [ -n "$DEVLOG_SESSION_ID" ] || return 0
 
     devlog_resolve_root || return 0
     devlog_resolve_lang
     devlog_now_epoch || return 0
+    devlog_marker_name "$DEVLOG_SESSION_ID" || return 0
 
     # Gate 1: an absent, unreadable, corrupt, or young marker is unjudgeable
     # or too early, so the high-frequency hook remains silent.
-    marker_path=$DEVLOG_ROOT/.devlog-markers/$DEVLOG_SESSION_ID.start
+    marker_path=$DEVLOG_ROOT/.devlog-markers/$DEVLOG_MARKER_NAME
     devlog_read_marker "$marker_path" || return 0
     [ $((DEVLOG_NOW - DEVLOG_MARKER_EPOCH)) -ge "$THRESHOLD_SEC" ] || return 0
 

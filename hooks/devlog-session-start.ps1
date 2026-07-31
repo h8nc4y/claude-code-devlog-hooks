@@ -9,9 +9,8 @@
 #   always exit 0). A journaling aid must never break or clutter a session.
 # - Output is written as raw UTF-8 bytes so non-ASCII text survives regardless
 #   of the console code page (prevents mojibake).
-# - No Set-StrictMode: the logic relies on absent JSON properties evaluating
-#   to $null. Under strict mode they would throw, hit the fail-open catch, and
-#   silently disable the hook.
+# - Protocol input is parsed by the sibling shared helper, which enforces one
+#   object root, unique property names, and ordinal exact field names.
 # - Saved as UTF-8 with BOM so Windows PowerShell 5.1 parses the non-ASCII
 #   message text correctly; PowerShell 7 accepts the BOM as well.
 
@@ -59,17 +58,14 @@ function Resolve-MessageLang {
 }
 
 try {
-    $raw = [Console]::In.ReadToEnd()
-    $data = $null
-    if ($raw) { try { $data = $raw | ConvertFrom-Json } catch { $data = $null } }
+    . (Join-Path $PSScriptRoot 'devlog-common.ps1')
+    $inputData = Read-DevlogHookInput
 
-    # Establish identity only from the protocol's non-empty string form.
+    # Establish identity only from the protocol's bounded marker-safe string.
     # Unjudgeable input still receives the routine, but must not create or
     # prune enforcement-looking marker state.
-    $identityEstablished = [bool]($data -and
-        ($data.session_id -is [string]) -and
-        -not [string]::IsNullOrEmpty($data.session_id))
-    $sid = if ($identityEstablished) { [string]$data.session_id } else { '' }
+    $identityEstablished = [bool]($null -ne $inputData -and $inputData.HasSession)
+    $sid = if ($identityEstablished) { [string]$inputData.SessionId } else { '' }
 
     $devlogDir = Resolve-DevlogRoot
     $lang = Resolve-MessageLang
@@ -77,7 +73,6 @@ try {
 
     $enforcementOn = $false
     if ($identityEstablished) {
-        $safeSid = ($sid -replace '[^A-Za-z0-9_.-]', '_')
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
         # Marker writes get their own catch: on an unwritable devlog root the
@@ -88,7 +83,10 @@ try {
                 # -Force creates missing parents, including the devlog root on first run.
                 New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
             }
-            Set-Content -LiteralPath (Join-Path $markerDir "$safeSid.start") -Value "$now" -NoNewline -Encoding ascii
+            # A reversible hex key keeps exact identities distinct even on
+            # Windows case-insensitive filesystems and for reserved basenames.
+            $markerName = Get-DevlogMarkerFileName -SessionId $sid
+            Set-Content -LiteralPath (Join-Path $markerDir $markerName) -Value "$now" -NoNewline -Encoding ascii
             $enforcementOn = $true
         } catch {
             $enforcementOn = $false

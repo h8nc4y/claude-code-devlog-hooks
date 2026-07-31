@@ -34,7 +34,7 @@ three hooks exist to defeat exactly that failure mode:
 
 | Layer | Hook event | Behavior |
 | --- | --- | --- |
-| Routine | SessionStart | Injects this discipline; records the start marker only with an established non-empty string session id, otherwise warns that nudge/backstop enforcement is off |
+| Routine | SessionStart | Injects this discipline; records the start marker only with an established 1-64 character `[A-Za-z0-9_.-]` session id, otherwise warns that nudge/backstop enforcement is off |
 | Reminder | UserPromptSubmit | If the session is old enough AND today's journal is stale (default: 20 min for both), nudges once in a while — never blocks |
 | Backstop | Stop | If today's journal was not touched since the session started, blocks the end of the turn once with instructions — then stays quiet |
 

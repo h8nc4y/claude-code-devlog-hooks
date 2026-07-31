@@ -12,7 +12,8 @@ access, or real journal data in tests.
 This is a Bash port, not a pure POSIX `sh` port. Bash 3.2 is the compatibility
 floor so the scripts can run with the older system Bash still found on macOS.
 The implementation uses only Bash features available in 3.2 plus standard
-Unix utilities (`awk`, `cat`, `date`, `mkdir`, `rm`, and `stat`).
+Unix utilities (`awk`, `date`, `dirname`, `head`, `iconv`, `mkdir`, `od`,
+`rm`, and `stat`).
 
 ### Class M macOS compatibility follow-up
 
@@ -45,15 +46,30 @@ The Bash and PowerShell variants share these observable invariants:
 5. `CLAUDE_DEVLOG_LANG` accepts only `ja` or `en`; any other value falls back
    to the script default.
 6. SessionStart writes an ASCII epoch marker and prunes markers older than
-   seven days only after establishing a non-empty string session identity.
+   seven days only after establishing a 1-64 character session identity in
+   `[A-Za-z0-9_.-]`. The identity is encoded into a lowercase-hex `~sid-`
+   marker key before filesystem access.
    Unjudgeable identity input injects a fixed warning and changes no marker
    state.
 7. UserPromptSubmit nudges only when both the session age and journal
    staleness reach 20 minutes.
 8. Stop blocks only while the journal mtime is older than the session marker.
    A missing/corrupt marker fails open.
-9. Only a top-level JSON boolean `stop_hook_active: true` activates the loop
-   guard. Strings and nested fields do not.
+9. Input is read without a Bash variable through a 1,048,576-byte-bounded
+   byte stream. NUL, invalid UTF-8, oversized input, non-RFC grammar, and any
+   root other than one object are unjudgeable.
+10. Protocol names are compared after lossless escape decoding with exact
+    case. Every top-level property name must be unique by Unicode-scalar exact
+    identity and ASCII-case-folded identity; exact duplicates or ASCII case
+    collisions make the whole input unjudgeable. Non-ASCII case pairs remain
+    distinct unknown fields.
+11. Only an exact top-level JSON boolean `stop_hook_active: true` activates the
+    loop guard. Strings, case aliases, and nested fields do not.
+12. Root depth is at most 128, each property name is at most 256 Unicode
+    scalars, each number is at most 1,024 characters, and the document has at
+    most 4,096 property values plus array elements.
+13. The configured devlog root must be valid UTF-8. A non-UTF-8 POSIX
+    environment value fails open before output or filesystem mutation.
 
 ## File Architecture
 
@@ -75,22 +91,54 @@ whole `hooks/` directory must stay together. Each entrypoint disables inherited
 requirement to hooks that run on every turn. The port therefore does not use
 it.
 
-`devlog-common.sh` contains a bounded AWK parser for the top-level JSON object.
-It extracts only:
+`devlog-common.sh` converts at most 1,048,577 stdin bytes to a bounded
+hexadecimal stream, rejecting the extra byte, NUL, invalid UTF-8, and non-RFC
+JSON before protocol extraction. The AWK parser first requires one top-level
+object. After lossless JSON escape decoding, it extracts only:
 
-- `session_id`, accepted only as a non-empty JSON string and then reduced to
-  the marker filename alphabet `[A-Za-z0-9_.-]`; and
+- `session_id`, accepted only as a 1-64 character JSON string in
+  `[A-Za-z0-9_.-]`; and
 - `stop_hook_active`, accepted only when its value is the literal JSON boolean
   `true`.
 
-The parser skips quoted and compound values, so same-named nested fields do not
-affect the protocol decision. Malformed input and missing, empty, or non-string
-session ids cannot establish identity. SessionStart injects the routine plus a
-fixed non-reflective JA/EN warning but creates/prunes no marker state; nudge and
-Stop stay silent.
+Field names are case-sensitive: aliases such as `SESSION_ID` are ignored.
+Every top-level property name must be unique under exact Unicode-scalar and
+ASCII-case-folded comparison. Literal/escaped exact duplicates and ASCII case
+collisions, including unknown fields, make the whole document unjudgeable;
+distinct non-ASCII case pairs stay distinct. The parser validates but does not
+accumulate ordinary string values or primitive tokens. It accumulates only
+bounded top-level property identities and a valid bounded session id, keeping
+the 1 MiB path linear rather than quadratic in AWK. Compound values are
+otherwise skipped, so same-named nested fields do not affect the protocol
+decision. Malformed input,
+a non-object root, and missing, empty, or non-string session ids cannot
+establish identity. SessionStart injects the routine plus a fixed
+non-reflective JA/EN warning but creates/prunes no marker state; nudge and Stop
+stay silent.
 
 This parser is deliberately not a general JSON API. Protocol fields outside
 the two listed above are ignored.
+
+Raw hook stdin is never emitted into command substitution or captured in a
+Bash variable. It flows directly through `head -c`, which caps acquisition at
+limit plus one byte, and `od`, which preserves every byte as hex. Only the
+three small parser result fields are emitted and captured by command
+substitution. That bounded parser subshell enables `pipefail`, so a partial
+`head`/`od` failure cannot become an apparently valid object. This prevents
+Bash from silently deleting NUL and turning malformed JSON into an enforceable
+session.
+
+The result uses `|` as a non-whitespace delimiter. The marker-safe session
+alphabet cannot contain `|`, and Bash therefore preserves the empty middle
+field in valid states such as `0||0` and `0||1`; whitespace `IFS` would collapse
+adjacent separators and incorrectly turn those states into parser failures.
+
+Accepted identities are not used as raw filenames. `devlog_marker_name`
+encodes every ASCII byte as lowercase hex and prefixes `~sid-`. The mapping is
+injective even on case-insensitive filesystems, cannot form Windows reserved
+basenames, and is disjoint from the former raw/sanitized marker namespace.
+During an update, a session with only a legacy marker therefore fails open;
+old `*.start` files remain eligible for normal retention pruning.
 
 ## JSON Output And Path Escaping
 
@@ -117,18 +165,27 @@ paths containing Japanese text, an emoji, a warning sign, quote, backslash,
 tab, newline, and `0x01`, then strictly decode the hook output as UTF-8 JSON
 and compare the round-tripped path.
 
+Before any path use, `devlog_resolve_root` passes the selected environment
+value through `iconv -f UTF-8 -t UTF-8`. This validates the value without
+replacing the original path bytes. A non-UTF-8 value therefore cannot produce
+invalid JSON or a path mutation.
+
 ## Portable Time And Filesystem Behavior
 
 - Epoch now: `date -u +%s`.
 - Daily filename: `date +%Y-%m-%d`.
 - Linux mtime: `stat -c %Y`.
 - macOS/BSD mtime: `stat -f %m`.
-- Marker content: decimal ASCII epoch with no newline requirement.
+- Marker content: canonical decimal ASCII epoch, 1-18 bytes, no newline, and
+  no leading zero on a multi-digit value.
 - Retention: compare each `*.start` file mtime with
   `now - retention_days * 86400`; deletion is best-effort.
 
-Epoch inputs must contain only digits and fit within 18 decimal digits. Larger
-or malformed values are unjudgeable and fail open before Bash arithmetic.
+Marker reads check GNU/BSD file size before and after a `head -c 19` read. The
+read byte count must match the stable size, so a newline, concurrent size
+change, leading zero, 19-byte value, or larger file is unjudgeable without an
+unbounded `cat`. Other epoch inputs must contain only digits and fit within 18
+decimal digits before Bash arithmetic.
 
 ## Failure Matrix
 
@@ -161,8 +218,14 @@ JSON escaping. CI runs those checks on `ubuntu-latest` and on a finite
 `macos-15` job using the system `/bin/bash`.
 
 PR #12 [Actions run 30199559874](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30199559874)
-verified macOS 15.7.7 and system Bash 3.2.57. The job passed the Darwin/Bash
-canary, readiness, plugin contract, all-script syntax gate, 13 launcher cases,
-and all 33 hook cases, including exact Japanese/emoji/control-byte JSON
-round-trips. Live Claude Code registration and real in-session journal behavior
-on macOS remain outside this synthetic CI scope.
+verified the then-current revision on macOS 15.7.7 and system Bash 3.2.57. That
+job passed the Darwin/Bash canary, readiness, plugin contract, all-script
+syntax gate, 13 launcher cases, and the then-current 33 hook cases. It is
+historical evidence for the runner and Bash 3.2 path, not verification of the
+current 65/68-case resource-boundary patch. PR #18
+[Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
+then verified the current patch on Ubuntu Bash 5.2.21 and macOS system Bash
+3.2.57. Ubuntu passed all 68 cases plus readiness, plugin, launcher, syntax,
+and private-marker scanner gates. macOS passed all 68 cases plus readiness,
+plugin, launcher, and syntax gates; that job does not run the scanner. Live
+Claude Code registration and real in-session journal behavior remain unverified.
