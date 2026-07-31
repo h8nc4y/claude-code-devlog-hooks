@@ -45,9 +45,10 @@
   timeout kill順、1 MiB/pipe capture capを同じ共有ケースで実測済み。
 - 同日、PowerShell 7/5.1 AST、Git Bash/WSL Bashの全shell構文、Claude strict plugin
   validate、plugin contract、launcher 13件、readiness、private-marker self-test/実scan、
-  Gitleaks worktree/history、Semgrep local rulesが成功した。current CIは未実行。
+  Gitleaks worktree/history、Semgrep local rulesが成功した。PR #18 Actions run
+  30665994905もWindows/Ubuntu/macOSの3 jobすべて成功した。
 - 現行契約の可変なPR/run情報はmerge済みPRとActionsを都度再確認する。
-- 最新の独立再レビューは修正差分の再確認中。Git / GitHub / CIは外部状態のため、
+- 最新の独立再レビューは`CLEAR:YES`（P0〜P3すべて0）。Git / GitHub / CIは外部状態のため、
   可変の「最終main」SHAやopen件数をここへ固定せず、次の着手時に必ず再計測する。
 
 ## Success metrics
@@ -81,8 +82,8 @@
 ## Known boundaries
 
 - live Claude Code plugin install、実Vault書込み、owner環境のmacOS live sessionは未確認。
-- current patchのGitHub-hosted Windows/Ubuntu/macOS CIは未確認。
-- 変更ごとのGitHub-hosted macOS 15 / system Bash 3.2 synthetic結果はActionsで再確認する。
+- PR #18のcurrent patchはGitHub-hosted Windows/Ubuntu/macOS CI成功済み。以後の変更では
+  macOS 15 / system Bash 3.2を含むActionsを再確認する。
 
 ## Do not re-read
 
@@ -90,6 +91,5 @@
 
 ## Next step
 
-現在のstaged WIPをcommitし、明示refspecでbranchをpushしてPRを作成する。Windows、
-Ubuntu、macOSのcurrent CIを確認し、結果を文書へ同期してからmerge、post-main確認、
-worktree/branch cleanupまで完了する。別branchの改善はこの統合後に選ぶ。
+PR #18のcurrent CI結果を文書へ同期してcommit/pushし、再CI成功後にmergeする。
+post-main確認とworktree/branch cleanupまで完了し、次の改善はこの統合後に選ぶ。

@@ -222,6 +222,10 @@ verified the then-current revision on macOS 15.7.7 and system Bash 3.2.57. That
 job passed the Darwin/Bash canary, readiness, plugin contract, all-script
 syntax gate, 13 launcher cases, and the then-current 33 hook cases. It is
 historical evidence for the runner and Bash 3.2 path, not verification of the
-current 65/68-case resource-boundary patch. Current-patch macOS CI, live Claude
-Code registration, and real in-session journal behavior remain unverified
-until their respective checks run.
+current 65/68-case resource-boundary patch. PR #18
+[Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
+then verified the current patch on Ubuntu Bash 5.2.21 and macOS system Bash
+3.2.57. Ubuntu passed all 68 cases plus readiness, plugin, launcher, syntax,
+and private-marker scanner gates. macOS passed all 68 cases plus readiness,
+plugin, launcher, and syntax gates; that job does not run the scanner. Live
+Claude Code registration and real in-session journal behavior remain unverified.

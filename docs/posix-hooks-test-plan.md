@@ -175,6 +175,7 @@ substitution of each required job, runner, shell, and step.
   and the then-current 33 hook cases.
 - Actual macOS live-session behavior remains outside this synthetic CI scope;
   only the synthetic system-Bash execution above is verified.
-- PR #12 predates the current 65/68-case resource-boundary patch. The current
-  patch's macOS/Bash 3.2 result remains unverified until its own Actions job
-  completes.
+- PR #12 predates the current 65/68-case resource-boundary patch. PR #18
+  [Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
+  passed the current patch on Windows, Ubuntu Bash 5.2.21, and macOS system
+  Bash 3.2.57; Ubuntu/macOS each completed all 68 cases and the required gates.

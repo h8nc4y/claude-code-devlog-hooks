@@ -114,6 +114,7 @@ git diff --check
 
 Also run staged Gitleaks and Semgrep through the host security guard. A live
 plugin installation, marketplace publication, and real Vault access remain
-explicitly unverified. PR #12 proves an older synthetic macOS/Bash 3.2 suite;
-the current 65/68-case patch remains unverified on macOS until its own CI job
-passes.
+explicitly unverified. PR #18
+[Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
+passed all Windows, Ubuntu, and macOS jobs for the current 65/68-case patch,
+including system Bash 3.2.57, launcher, readiness, and scanner gates.

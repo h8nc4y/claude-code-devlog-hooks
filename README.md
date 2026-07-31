@@ -326,13 +326,18 @@ requirements, architecture, detailed design, and verification are in
   then-current 33 hook cases (30 shared plus three POSIX-only).
   This is historical runner/Bash 3.2 evidence and does not by itself verify
   later 65/68-case protocol changes; each later patch needs its own CI result.
+- PR #18 [Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
+  verified the exact-protocol patch on all three jobs. Windows passed all 65
+  cases with PowerShell 7 and Windows PowerShell 5.1; Ubuntu passed all 68 with
+  Bash 5.2.21; macOS passed all 68 with system Bash 3.2.57. The same run also
+  passed readiness, plugin, launcher, syntax, and private-marker scanner gates.
 - The pre-parameterization ancestors of these hooks (same logic, hardcoded
   paths) have run in daily Claude Code use on Windows since 2026-06-15,
   most recently on Claude Code 2.1.207. The parameterized scripts in this
   repository are verified by the pipe-test suite; their live in-session
   registration was not separately re-exercised at release time.
 - The Bash hooks are pipe-tested on Linux and GitHub-hosted macOS 15. System
-  Bash 3.2 execution is verified by the synthetic macOS job above; live Claude
+  Bash 3.2 execution is verified by the PR #18 synthetic macOS job; live Claude
   Code registration and real in-session journal behavior on macOS/Linux remain
   unverified.
 
