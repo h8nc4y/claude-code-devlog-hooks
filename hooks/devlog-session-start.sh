@@ -21,11 +21,10 @@ DEFAULT_LANG=ja
 MARKER_RETENTION_DAYS=7
 
 main() {
-    local raw_input identity_established safe_session marker_dir marker_path enforcement_on
+    local identity_established safe_session marker_dir marker_path enforcement_on
     local daily topics_dir context
 
-    raw_input=$(cat) || raw_input=
-    if ! devlog_parse_input "$raw_input"; then
+    if ! devlog_parse_input; then
         DEVLOG_HAS_SESSION=0
         DEVLOG_SESSION_ID=
         DEVLOG_STOP_ACTIVE=0
@@ -47,18 +46,24 @@ main() {
 
     if [ "$identity_established" = "1" ]; then
         devlog_now_epoch || return 0
-        marker_path=$marker_dir/$safe_session.start
+        if devlog_marker_name "$safe_session"; then
+            marker_path=$marker_dir/$DEVLOG_MARKER_NAME
+        else
+            identity_established=0
+        fi
 
         # Marker failure disarms the later layers, so continue with context but
         # disclose the degraded enforcement in the structured response.
-        if mkdir -p "$marker_dir" 2>/dev/null &&
+        if [ "$identity_established" = "1" ] && mkdir -p "$marker_dir" 2>/dev/null &&
             printf '%s' "$DEVLOG_NOW" >"$marker_path" 2>/dev/null; then
             enforcement_on=1
         fi
 
         # Only an established identity may mutate marker state. Pruning then
         # remains best-effort and must never suppress the useful context.
-        devlog_prune_markers "$marker_dir" "$DEVLOG_NOW" "$MARKER_RETENTION_DAYS" || :
+        if [ "$identity_established" = "1" ]; then
+            devlog_prune_markers "$marker_dir" "$DEVLOG_NOW" "$MARKER_RETENTION_DAYS" || :
+        fi
     fi
 
     daily=$DEVLOG_ROOT/daily/$DEVLOG_TODAY.md

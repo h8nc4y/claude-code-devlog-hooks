@@ -74,6 +74,9 @@ validator take precedence over this document.
 - The plugin launcher requires Bash 3.2+. Git for Windows is the supported
   launcher provider on native Windows; the manual PowerShell registration is
   the no-Git-Bash fallback.
+- Every plugin or manual path that executes the Bash hooks also requires the
+  standard Unix utilities `awk`, `date`, `dirname`, `head`, `iconv`, `mkdir`,
+  `od`, `rm`, and `stat`.
 - Plugin packaging must pass `claude plugin validate . --strict` on the
   locally verified CLI version.
 

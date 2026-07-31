@@ -8,6 +8,10 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Added
 
+- Shared PowerShell protocol parser (`hooks/devlog-common.ps1`) for bounded raw
+  stdin, strict UTF-8/RFC JSON validation, exact-case field extraction, and
+  lossless duplicate/case-collision rejection without relying on permissive
+  `ConvertFrom-Json` or PowerShell member-access semantics.
 - A shared bounded-process boundary for hermetic Git execution, binary-safe
   standard streams, finite output/time budgets, and process-tree cleanup on
   Windows and POSIX.
@@ -68,7 +72,7 @@ The format loosely follows Keep a Changelog conventions.
   PowerShell / Bash selection, one-runtime-only execution, executable Git
   index modes, root-skill/hook wiring, and non-sensitive failure output.
 - Class L plugin requirements, architecture, detailed design, and test plan.
-- Dependency-free Bash 3.2+ implementations of all three hooks for
+- Package-free Bash 3.2+ implementations of all three hooks for
   macOS/Linux:
   - `hooks/devlog-session-start.sh`
   - `hooks/devlog-prompt-nudge.sh`
@@ -82,9 +86,35 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
-- Unified the PowerShell and Bash protocol boundary so only a non-empty JSON
-  string `session_id` can establish session identity and select a marker.
-  Malformed stdin and missing, empty, or non-string ids now create/prune no
+- Bounded parser work independently from raw byte size: container depth 128,
+  property names 256 Unicode scalars, number tokens 1,024 characters, and
+  values 4,096. Bash ordinary-string and number validation is linear, and the
+  pipe harness now drains both output streams while asynchronously writing
+  stdin under one finite deadline, kills before closing a timed-out pending
+  write, and caps each captured output pipe at 1 MiB.
+- Replaced lossy session-id filename mapping with a 1-64 character
+  `[A-Za-z0-9_.-]` identity and a reversible lowercase-hex `~sid-` marker key.
+  The key is distinct across case-insensitive filesystems, Windows reserved
+  names, and the legacy raw/sanitized namespace. Unsafe/non-ASCII/oversized ids
+  fail open; legacy-only markers are not consumed during a rolling update.
+- Bounded marker reads to canonical 1-18 byte ASCII decimal values and reject
+  leading zeroes, newline termination, size changes, and oversized files.
+  Bash also validates the configured root as UTF-8 before output or mutation.
+- Unified PowerShell 7, Windows PowerShell 5.1, and Bash input parsing around
+  strict UTF-8, a 1,048,576-byte cap, RFC JSON grammar, and one top-level
+  object. Property names are losslessly compared by Unicode-scalar exact
+  identity plus ASCII case folding; exact duplicates and ASCII case
+  collisions make the whole input unjudgeable, aliases do not stand in for
+  `session_id` or `stop_hook_active`, and unique unknown/non-ASCII case-pair
+  fields remain ignored. PowerShell escape-token dispatch is explicitly
+  case-sensitive, so uppercase `B/F/N/R/T/U` spellings are rejected in parity
+  with Bash. Bash no longer stores raw stdin in command
+  substitution, so NUL cannot disappear before validation. Its non-whitespace
+  result framing also preserves valid empty-session parser states. The shared
+  hook suite now covers 65 cross-runtime cases plus three POSIX-path cases.
+- Unified the PowerShell and Bash protocol boundary so only a marker-safe
+  1-64 character JSON string `session_id` can establish identity and select
+  a marker. Malformed stdin and missing, empty, non-string, unsafe, or oversized ids now create/prune no
   marker state; SessionStart adds a fixed non-reflective JA/EN warning that
   enforcement is off, while nudge/Stop fail open silently.
 - Compacted `HANDOFF.md` to the current observable repository state, immediate

@@ -20,6 +20,7 @@ Claude Code event
        3. classify the runtime from uname
        4. select exactly one existing hook implementation
   -> hooks/devlog-<event>.ps1 OR hooks/devlog-<event>.sh
+       -> matching hooks/devlog-common.ps1 OR hooks/devlog-common.sh
   -> existing hook JSON output / marker side effect
 ```
 
@@ -33,8 +34,10 @@ journal, or reproduce any of the existing hook logic.
 SKILL.md                         # single root skill, auto-discovered
 hooks/hooks.json                 # three event registrations
 hooks/devlog-plugin-launcher.sh  # one bounded runtime dispatcher
-hooks/devlog-*.ps1               # existing Windows implementation
-hooks/devlog-*.sh                # existing Bash implementation
+hooks/devlog-common.ps1          # shared PowerShell protocol parser
+hooks/devlog-common.sh           # shared Bash protocol/runtime helpers
+hooks/devlog-<event>.ps1         # Windows event entrypoints
+hooks/devlog-<event>.sh          # Bash event entrypoints
 ```
 
 No `skills` manifest field is needed. Claude Code loads a root `SKILL.md` as

@@ -720,6 +720,26 @@ function Assert-FileHasUtf8Bom {
     }
 }
 
+function Assert-FileIsAscii {
+    param([string]$RelativePath)
+
+    $filePath = Get-RepoFilePath -RelativePath $RelativePath
+    if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+        Add-Failure "Cannot inspect missing file: $RelativePath (ASCII source contract)"
+        return
+    }
+
+    # Windows PowerShell 5.1 decodes BOM-less source through the active ANSI
+    # code page. Keeping the shared helper byte-for-byte ASCII makes that
+    # decode deterministic without imposing a BOM on an otherwise ASCII file.
+    foreach ($byte in [System.IO.File]::ReadAllBytes($filePath)) {
+        if ($byte -gt 0x7F) {
+            Add-Failure "$RelativePath must stay ASCII-only while it remains BOM-less for Windows PowerShell 5.1."
+            return
+        }
+    }
+}
+
 function Assert-FirstTopLevelProcessInvocationIsBinary {
     param([string]$RelativePath)
 
@@ -3238,6 +3258,7 @@ function Assert-HookFile {
     Assert-FileContains -RelativePath $RelativePath -Pattern 'Write-Utf8Stdout' -Description 'UTF-8 byte output helper'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'exit 0' -Description 'fail-open exit'
     Assert-FileNotContains -RelativePath $RelativePath -Pattern '[A-Za-z]:\\[^\r\n]*\\' -Description 'hardcoded absolute Windows paths'
+    Assert-FileNotContains -RelativePath $RelativePath -Pattern '\[Console\]::In\.ReadToEnd' -Description 'unbounded text-mode hook stdin read'
     Assert-FileHasUtf8Bom -RelativePath $RelativePath
 }
 
@@ -3285,9 +3306,29 @@ function Assert-BashCommonFile {
     Assert-FileContains -RelativePath $RelativePath -Pattern '(?m)^\s*\*\) DEVLOG_ESCAPED=\$DEVLOG_ESCAPED\$ch ;;\s*$' -Description 'direct non-control UTF-8 byte passthrough'
     Assert-FileNotContains -RelativePath $RelativePath -Pattern "(?m)^\s*\*\)\s*\r?\n\s*printf -v code '%d'" -Description 'numeric conversion in the non-control UTF-8 branch'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'stop_hook_active' -Description 'top-level boolean loop-guard parsing'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'head -c 1048577' -Description 'max+1-byte bounded stdin read'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'od -An -v -tx1' -Description 'NUL-preserving stdin hex transport'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'set -o pipefail' -Description 'partial parser-pipeline failure rejection'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'validate_input' -Description 'strict NUL and UTF-8 validation'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'seen_exact_names' -Description 'decoded exact property identity'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'seen_folded_names' -Description 'ASCII-only property case folding'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'value_count > 4096' -Description 'bounded JSON value work'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'number_characters > 1024' -Description 'bounded JSON number work'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'string_property_scalars > 256' -Description 'bounded property-name work'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'string_session_scalars > 64' -Description 'bounded session identity'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'DEVLOG_MARKER_NAME="~sid-' -Description 'injective case-insensitive-filesystem-safe marker key'
+    Assert-FileNotContains -RelativePath $RelativePath -Pattern 'token = token sprintf' -Description 'quadratic primitive token accumulation'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'printf "%d\|%s\|%d\\n"' -Description 'non-whitespace parser result framing'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'IFS=''\|'' read -r DEVLOG_HAS_SESSION DEVLOG_SESSION_ID DEVLOG_STOP_ACTIVE' -Description 'empty middle parser field preservation'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'stat -c %Y' -Description 'GNU stat mtime support'
     Assert-FileContains -RelativePath $RelativePath -Pattern 'stat -f %m' -Description 'BSD stat mtime support'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'iconv -f UTF-8 -t UTF-8' -Description 'configured-root UTF-8 validation'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'head -c 19' -Description 'max+1 bounded marker read'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'stat -c %s' -Description 'GNU stat marker-size support'
+    Assert-FileContains -RelativePath $RelativePath -Pattern 'stat -f %z' -Description 'BSD stat marker-size support'
+    Assert-FileNotContains -RelativePath $RelativePath -Pattern 'value=\$\(cat ' -Description 'unbounded marker read'
     Assert-FileNotContains -RelativePath $RelativePath -Pattern '(?m)^\s*jq(?:\s|$)' -Description 'jq runtime invocation'
+    Assert-FileNotContains -RelativePath $RelativePath -Pattern 'local raw_input' -Description 'raw stdin storage in a Bash variable'
 
     $bytes = [System.IO.File]::ReadAllBytes($filePath)
     if ($bytes.Length -ge 3 -and
@@ -3383,10 +3424,12 @@ $requiredFiles = @(
     'docs/plugin-architecture.md',
     'docs/plugin-detailed-design.md',
     'docs/plugin-test-plan.md',
+    'docs/session-id-type-contract.md',
     'examples/hooks-settings.json',
     'examples/hooks-settings.bash.json',
     'examples/journal-entry-template.md',
     'HANDOFF.md',
+    'hooks/devlog-common.ps1',
     'hooks/devlog-common.sh',
     'hooks/devlog-session-start.sh',
     'hooks/devlog-prompt-nudge.sh',
@@ -3728,7 +3771,80 @@ Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
 Assert-HookFile -RelativePath 'hooks/devlog-session-start.ps1'
 Assert-HookFile -RelativePath 'hooks/devlog-prompt-nudge.ps1'
 Assert-HookFile -RelativePath 'hooks/devlog-stop.ps1'
-Assert-FileContains -RelativePath 'hooks/devlog-stop.ps1' -Pattern '-is \[bool\]' -Description 'strict JSON boolean stop_hook_active guard'
+Assert-FileIsAscii -RelativePath 'hooks/devlog-common.ps1'
+Assert-FileContains -RelativePath 'hooks/devlog-session-start.ps1' -Pattern 'devlog-common\.ps1' -Description 'shared PowerShell protocol parser loading'
+Assert-FileContains -RelativePath 'hooks/devlog-prompt-nudge.ps1' -Pattern 'devlog-common\.ps1' -Description 'shared PowerShell protocol parser loading'
+Assert-FileContains -RelativePath 'hooks/devlog-stop.ps1' -Pattern 'devlog-common\.ps1' -Description 'shared PowerShell protocol parser loading'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'StringComparison\]::Ordinal' -Description 'case-sensitive protocol field comparison'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'StringComparer\]::Ordinal' -Description 'decoded exact duplicate detection'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'Get-DevlogAsciiFoldedName' -Description 'locale-independent ASCII property folding'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'DevlogMaximumInputBytes = 1048576' -Description 'bounded PowerShell hook input'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'DevlogMaximumJsonValues = 4096' -Description 'bounded PowerShell JSON value work'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'DevlogMaximumJsonNumberCharacters = 1024' -Description 'bounded PowerShell JSON number work'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'DevlogMaximumPropertyNameScalars = 256' -Description 'bounded PowerShell property-name work'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'DevlogMaximumSessionIdCharacters = 64' -Description 'bounded PowerShell session identity'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'OpenStandardInput' -Description 'byte-preserving PowerShell stdin read'
+Assert-FileNotContains -RelativePath 'hooks/devlog-common.ps1' -Pattern '\[Console\]::In\.ReadToEnd' -Description 'unbounded text-mode shared hook stdin read'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'UTF8Encoding\(\$false, \$true\)' -Description 'strict PowerShell UTF-8 decode'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "Kind -ceq 'boolean'" -Description 'strict JSON boolean stop_hook_active guard'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$escaped -ceq 'b'" -Description 'case-sensitive backspace escape dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$escaped -ceq 'f'" -Description 'case-sensitive form-feed escape dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$escaped -ceq 'n'" -Description 'case-sensitive newline escape dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$escaped -ceq 'r'" -Description 'case-sensitive carriage-return escape dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$escaped -ceq 't'" -Description 'case-sensitive tab escape dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$escaped -cne 'u'" -Description 'case-sensitive Unicode escape dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$state\.Text\[\`$state\.Index \+ 1\] -cne 'u'" -Description 'case-sensitive surrogate escape dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$character -ceq 't'" -Description 'case-sensitive true literal dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$character -ceq 'f'" -Description 'case-sensitive false literal dispatch'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$character -ceq 'n'" -Description 'case-sensitive null literal dispatch'
+Assert-FileNotContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "\`$escaped -(?:eq|ne) '[bfnrtu]'" -Description 'case-insensitive JSON escape dispatch'
+Assert-FileNotContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'ConvertFrom-Json' -Description 'runtime-permissive JSON grammar validator'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'Read-DevlogMarkerEpoch' -Description 'shared bounded PowerShell marker reader'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern '\$length -lt 1 -or \$length -gt 18' -Description 'canonical PowerShell marker size'
+Assert-FileNotContains -RelativePath 'hooks/devlog-common.ps1' -Pattern '(?i)\bGet-Content\b' -Description 'unbounded shared marker text read'
+Assert-FileNotContains -RelativePath 'hooks/devlog-common.ps1' -Pattern '::ReadAll(?:Text|Bytes)' -Description 'unbounded shared marker whole-file read'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern ([regex]::Escape('[A-Za-z0-9_.-]{1,')) -Description 'accepted PowerShell session identity alphabet'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'Get-DevlogMarkerFileName' -Description 'shared injective PowerShell marker-key encoder'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern "'~sid-'" -Description 'legacy-disjoint PowerShell marker namespace'
+Assert-FileContains -RelativePath 'hooks/devlog-session-start.ps1' -Pattern 'Get-DevlogMarkerFileName' -Description 'encoded SessionStart marker write'
+Assert-FileContains -RelativePath 'hooks/devlog-prompt-nudge.ps1' -Pattern 'Get-DevlogMarkerFileName' -Description 'encoded nudge marker lookup'
+Assert-FileContains -RelativePath 'hooks/devlog-stop.ps1' -Pattern 'Get-DevlogMarkerFileName' -Description 'encoded Stop marker lookup'
+Assert-FileContains -RelativePath 'hooks/devlog-prompt-nudge.ps1' -Pattern 'Read-DevlogMarkerEpoch' -Description 'bounded nudge marker read'
+Assert-FileContains -RelativePath 'hooks/devlog-stop.ps1' -Pattern 'Read-DevlogMarkerEpoch' -Description 'bounded Stop marker read'
+Assert-FileNotContains -RelativePath 'hooks/devlog-prompt-nudge.ps1' -Pattern 'Get-Content.+markerPath' -Description 'unbounded nudge marker read'
+Assert-FileNotContains -RelativePath 'hooks/devlog-stop.ps1' -Pattern 'Get-Content.+markerPath' -Description 'unbounded Stop marker read'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern "Assert-ParserProbe -StdinText '\{\}' -Expected '0\|\|0'" -Description 'direct empty-object parser state regression'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern "Assert-ParserProbe -StdinText '\{`"session_id`":null,`"stop_hook_active`":true\}' -Expected '0\|\|1'" -Description 'direct null-session Stop-guard parser state regression'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'expectedCaseCount' -Description 'fixed hook-suite case-count guard'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern '\{ 68 \} else \{ 65 \}' -Description 'platform-specific fixed hook-suite case counts'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern '\$candidateCase\.Name -ceq \$CaseName' -Description 'case-sensitive exact hook-case selector'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'No hook case matched -CaseName' -Description 'unmatched hook-case selector failure'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'New-Object byte\[\] 0' -Description 'explicit empty-stdin byte-array restoration'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'exact 1,048,576-byte limit' -Description 'exact maximum input regression'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'full-duplex harness probe' -Description 'full-duplex pipe regression'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'Hook output capture limit exceeded' -Description 'bounded harness output capture'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'never reads stdin must hit the shared deadline' -Description 'pending-stdin timeout regression'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'MonitorDrains' -Description 'stdin wait monitors output capture faults'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern '(?s)overflowProbePath.{0,300}-StdinBytes \$timeoutInput' -Description 'combined output-overflow and blocked-stdin regression'
+foreach ($depthBoundaryFixture in @(
+    'container depth 127',
+    'container depth 128 with a scalar leaf',
+    'container depth 129'
+)) {
+    Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern ([regex]::Escape($depthBoundaryFixture)) -Description "container-depth boundary regression $depthBoundaryFixture"
+}
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern "@\('A', 'a', 'NUL', 'CON', 'COM1'\)" -Description 'portable marker-key collision regressions'
+foreach ($uppercaseEscapeFixture in @(
+    'invalid-escape-uppercase-b',
+    'invalid-escape-uppercase-f',
+    'invalid-escape-uppercase-n',
+    'invalid-escape-uppercase-r',
+    'invalid-escape-uppercase-t',
+    'invalid-escape-uppercase-u-field',
+    'invalid-escape-uppercase-u-value'
+)) {
+    Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern ([regex]::Escape($uppercaseEscapeFixture)) -Description "cross-runtime rejection fixture $uppercaseEscapeFixture"
+}
 Assert-BashCommonFile -RelativePath 'hooks/devlog-common.sh'
 Assert-BashHookFile -RelativePath 'hooks/devlog-session-start.sh'
 Assert-BashHookFile -RelativePath 'hooks/devlog-prompt-nudge.sh'
@@ -3740,6 +3856,7 @@ Assert-FileNotContains -RelativePath 'hooks/hooks.json' -Pattern '\$\{user_confi
 Assert-FileNotContains -RelativePath 'hooks/devlog-plugin-launcher.sh' -Pattern '(?m)^\s*eval(?:\s|$)' -Description 'eval of configuration values'
 Assert-FileContains -RelativePath 'scripts/test-plugin-launcher.sh' -Pattern '(?m)^TEST_ROOT_RAW=\$\(mktemp -d ' -Description 'raw synthetic launcher fixture root'
 Assert-FileContains -RelativePath 'scripts/test-plugin-launcher.sh' -Pattern '(?m)^TEST_ROOT=\$\(CDPATH= cd -- "\$TEST_ROOT_RAW" && pwd -P\)' -Description 'physical synthetic launcher fixture root'
+Assert-FileContains -RelativePath 'scripts/test-plugin-launcher.sh' -Pattern '~sid-\$\{plugin_session_hex\}\.start' -Description 'encoded plugin integration marker expectation'
 
 Test-SkillFrontmatter
 Test-ExampleSettings -RelativePath 'examples/hooks-settings.json'

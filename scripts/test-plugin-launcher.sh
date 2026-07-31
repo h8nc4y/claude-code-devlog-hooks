@@ -349,7 +349,8 @@ fi
 if ! grep -Fq -- 'Dev journal routine' "$actual_stdout"; then
     fail 'Plugin language option should reach the real selected hook'
 fi
-if [[ ! -f $actual_root/.devlog-markers/plugin-integration.start ]]; then
+plugin_session_hex=$(printf '%s' 'plugin-integration' | LC_ALL=C od -An -v -tx1 | LC_ALL=C tr -d ' \n')
+if [[ ! -f "$actual_root/.devlog-markers/~sid-${plugin_session_hex}.start" ]]; then
     fail 'Plugin directory option should receive the real session marker'
 fi
 if [[ -e $legacy_root ]]; then

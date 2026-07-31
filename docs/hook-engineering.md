@@ -13,7 +13,7 @@ three hooks with different pressure levels:
 
 1. **SessionStart — inform.** Inject the routine via
    `hookSpecificOutput.additionalContext` and, only after establishing a
-   non-empty string session identity, record state (a session-start marker)
+   marker-safe 1-64 character session identity, record state (a session-start marker)
    for the other layers.
 2. **UserPromptSubmit — nudge, never block.** High-frequency,
    judgment-based behaviors ("append when something is worth recording")
@@ -31,7 +31,9 @@ journal is stale" Stop hook harasses from the very first turn and never
 stops. The **enforce-once pattern** fixes this:
 
 - SessionStart writes the session start time (unix epoch) to a marker file
-  keyed by a validated non-empty string `session_id`.
+  keyed by a validated 1-64 character `[A-Za-z0-9_.-]` `session_id`. Each ASCII
+  byte is lowercase-hex encoded under `~sid-`, keeping case variants, Windows
+  reserved basenames, and legacy raw/sanitized marker names disjoint.
 - Stop compares: `daily journal mtime >= session start epoch` means "already
   updated this session" — allow. Otherwise block once with instructions.
 - After the journal is written once, every later turn in the session passes
@@ -73,7 +75,9 @@ working one on a session where the journal was updated. The hook appends a
 degrading invisibly.
 
 The same disclosure applies when SessionStart cannot establish identity from
-malformed stdin or a missing, empty, or non-string `session_id`. It still
+malformed/oversized/non-UTF-8 stdin, an embedded NUL, a non-object root,
+ambiguous top-level duplicates or ASCII case collisions, or a missing, empty,
+non-string, unsafe, or oversized `session_id`. It still
 injects the routine plus a fixed localized warning, but creates no marker
 directory, writes no marker, and performs no pruning. The warning must not
 reflect raw stdin, session values, or secret-like values; UserPromptSubmit and
@@ -130,24 +134,53 @@ byte capture in `scripts/test-hooks.ps1`.
 The Unix implementation targets Bash 3.2+ on macOS/Linux rather than pure
 POSIX `sh`. Bash byte iteration lets the shared helper JSON-escape arbitrary
 paths without installing jq, Python, or Node.js. Standard utilities used are
-`awk`, `cat`, `date`, `mkdir`, `rm`, and `stat`.
+`awk`, `head`, `od`, `iconv`, `date`, `dirname`, `mkdir`, `rm`, and `stat`.
 
-- **Input JSON is not evaluated.** A bounded AWK parser reads only the
-  top-level `session_id` and `stop_hook_active` fields, skips nested/string
-  values, and returns no result on malformed input. Malformed input and a
-  missing, empty, or non-string session id cannot establish identity and
-  therefore fail open without marker side effects.
+- **Input JSON is not evaluated or normalized.** A byte-preserving,
+  1,048,576-byte-bounded reader feeds hexadecimal bytes to the self-contained
+  AWK parser. NUL and invalid UTF-8 are rejected before any protocol value is
+  exposed. The parser requires RFC JSON grammar and one top-level object,
+  reads only the exact-case `session_id` and `stop_hook_active` fields, skips
+  nested values, and returns no result on malformed or ambiguous input.
+  Top-level names are losslessly decoded: exact Unicode-scalar duplicates and
+  ASCII-case-fold collisions make the whole input unjudgeable even when the
+  name is otherwise unknown. Distinct non-ASCII case pairs remain distinct,
+  avoiding locale-specific behavior. A non-object root, alias-only field, or
+  session id outside 1-64 characters of `[A-Za-z0-9_.-]` cannot establish identity and
+  therefore fails open without marker side effects.
+- **Byte bounds need work bounds.** The shared parser also limits container
+  depth to 128, every property name to 256 Unicode scalars, every number token
+  to 1,024 characters, and property values plus array elements to 4,096. The
+  Bash parser validates large ordinary strings without concatenating them and
+  streams number grammar, keeping the exact 1 MiB path linear.
+- **Parser result framing is non-whitespace.** Bash collapses adjacent
+  whitespace `IFS` delimiters, so a valid no-session result such as
+  `0<TAB><TAB>0` loses its empty middle field. The marker-safe alphabet
+  excludes `|`; the helper therefore emits and reads `0||0` / `0||1`
+  losslessly. Direct helper probes distinguish those valid states from parse
+  failure on every runtime.
+- **Portable marker keys need their own namespace.** Raw IDs collide under
+  Windows case folding and can hit reserved basenames. Lowercase hex is
+  injective, while the `~sid-` prefix cannot be emitted by the former accepted
+  or sanitized filename scheme. Existing sessions with only a legacy marker
+  therefore fail open until the next SessionStart; retention later prunes the
+  legacy file.
 - **Output path escaping is byte-based.** Quote/backslash are escaped and C0
   controls become `\u00xx`; UTF-8 bytes pass through unchanged. POSIX-only
   tests use synthetic paths containing quote, backslash, tab, newline, and
   `0x01`.
+- **Validate path encoding before reflection or mutation.** POSIX environment
+  values can contain invalid UTF-8. `iconv -f UTF-8 -t UTF-8` validates the
+  selected root while preserving the original value; failure is silent and
+  happens before output or filesystem access.
 - **`stat` differs by platform.** Linux uses `stat -c %Y`; macOS/BSD uses
   `stat -f %m`. Failure in both forms is unjudgeable and therefore silent.
 - **Fail-silent is an outer boundary.** Each entrypoint disables inherited
   `errexit`/`nounset`/`pipefail`, runs `main 2>/dev/null || :`, and ends in
   `exit 0`. Commands that intentionally produce JSON use only `printf`.
 - **Keep the directory together.** The three `.sh` entrypoints source
-  `devlog-common.sh` relative to `BASH_SOURCE[0]`.
+  `devlog-common.sh` relative to `BASH_SOURCE[0]`. The three `.ps1`
+  entrypoints use the equivalent shared parser in `devlog-common.ps1`.
 
 The complete architecture and dependency rationale live in
 [posix-hooks-design.md](posix-hooks-design.md); the cross-shell matrix lives in
@@ -160,26 +193,36 @@ The complete architecture and dependency rationale live in
   call (which does not exist on DateTime) instead of casting `$x` first.
   Always parenthesize: `([DateTimeOffset]$dt).ToUnixTimeSeconds()`. This
   exact bug, swallowed by fail-open, silently disabled the Stop hook once.
-- **No `Set-StrictMode` inside hooks.** The hook logic relies on absent
-  JSON properties evaluating to `$null` (`$data.stop_hook_active` on input
-  that lacks the field). Under strict mode that access throws, the fail-open
-  catch eats it, and the hook is silently disabled — strictness makes the
-  hook LESS correct. Test harnesses and validation scripts, which fail
-  closed, should keep `Set-StrictMode -Version Latest`. Note this is a
-  different axis from `$ErrorActionPreference = 'Stop'`, which the hooks DO
-  set: EAP governs how cmdlet errors surface (catchable vs stderr leak),
-  StrictMode governs whether absent variables/properties are errors.
+- **Do not use `ConvertFrom-Json` as a grammar validator.** Besides
+  case-insensitive member lookup and single-element-array scalarization,
+  PowerShell accepts non-RFC extensions such as unquoted/single-quoted keys,
+  leading-zero numbers, `NaN`, and (on PS 7) trailing commas. The shared
+  parser reads at most 1,048,576 raw bytes, strictly decodes UTF-8, validates
+  the RFC grammar, checks losslessly decoded top-level names, and extracts
+  protocol fields with ordinal exact names and explicit `HasSession` /
+  `StopActive` state. Production entrypoints still avoid `Set-StrictMode`:
+  a new strict-mode error could be swallowed by their fail-open boundary and
+  silently disable behavior. Test harnesses and validators remain fail-closed
+  under `Set-StrictMode -Version Latest`.
+- **Use case-sensitive operators for JSON grammar tokens.** PowerShell's
+  `-eq` / `-ne` string comparisons ignore case by default, which can turn
+  invalid `\B`, `\F`, `\N`, `\R`, `\T`, or `\U` spellings into valid JSON
+  escapes. Escape and literal dispatch therefore use `-ceq` / `-cne`, with
+  cross-runtime negative fixtures for uppercase escape letters.
 - **Require the protocol boolean type.** PowerShell treats any non-empty
   string as truthy, and even loose `-eq $true` coerces the string `"true"` to
-  a boolean. The loop guard therefore requires
-  `($data.stop_hook_active -is [bool]) -and $data.stop_hook_active`.
+  a boolean. The shared parser exposes the loop guard only when the exact
+  `stop_hook_active` property is a real JSON boolean `true`.
 - **PS 5.1 turns redirected native stderr into terminating errors** while
   `$ErrorActionPreference = 'Stop'`. Any harness that shells out (git, a
   child PowerShell) with `2>&1` or `2>$null` must scope the preference down
   to `'Continue'` around the call and rely on exit codes.
 - **Marker files**: write plain ASCII content (`-Encoding ascii`, epoch
   digits only) so any shell can read them back without BOM or code-page
-  concerns.
+  concerns. Read only canonical 1-18 byte decimal values, reject multi-digit
+  leading zeroes, and avoid whole-file helpers. Bash checks size before and
+  after a maximum-19-byte read; PowerShell opens a `FileStream`, checks its
+  length, and reads exactly that bounded length.
 
 ## Registration (settings.json)
 

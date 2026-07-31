@@ -21,8 +21,8 @@ What the hooks do — and everything they do:
 - **Filesystem reads**: the hook source/helper, stdin JSON provided by Claude
   Code, session marker files, and the mtime of today's journal file. Runtime
   state stays under the configured devlog root (`CLAUDE_DEVLOG_DIR`).
-- **Filesystem writes**: after SessionStart establishes a non-empty string
-  session identity, marker files under `<devlog root>/.devlog-markers/` (plus
+- **Filesystem writes**: after SessionStart establishes a 1-64 character
+  marker-safe session identity, encoded marker files under `<devlog root>/.devlog-markers/` (plus
   creating that directory and the devlog root on first run). Unjudgeable
   identity input creates and prunes no marker state. The hooks never write
   journal content and never touch paths outside the devlog root.
@@ -32,21 +32,39 @@ What the hooks do — and everything they do:
   context and, when identity is unestablished or marker writing fails, a fixed
   warning that enforcement is off. The trade-off (fail-open hides bugs) is
   countered by the pipe-test suite, not by failing closed.
-- **Injection surface**: only a non-empty JSON string `session_id` from stdin
-  is used in a filename, after replacing every character outside
-  `[A-Za-z0-9_.-]`. Malformed stdin and missing, empty, or non-string values
-  are unjudgeable: SessionStart creates/prunes no marker state and emits only
-  a fixed non-reflective identity warning, while nudge/Stop allow silently.
-  For those unjudgeable cases, raw stdin, session values, and secret-like
-  values are never reflected in output, stderr, or marker names. The pipe tests
-  cover the type gate, no-side-effect contract, and filename reduction.
-  Routine message text is static apart from interpolated paths derived from
-  the devlog root. The Bash
-  implementation parses only validated JSON values and JSON-escapes quote,
+- **Injection surface**: stdin is capped at 1,048,576 bytes, decoded as strict
+  UTF-8, and parsed with RFC JSON grammar as one top-level object. NUL,
+  invalid UTF-8, oversized input, parser extensions, and a single-element
+  array are not normalized into valid protocol input. Losslessly decoded
+  property names must be unique by Unicode-scalar exact identity and
+  ASCII-case-folded identity, while protocol fields are extracted with
+  exact-case names only. Aliases, literal/escaped exact duplicates, and ASCII
+  case collisions cannot select a session or loop guard; distinct non-ASCII
+  case pairs remain inert unique unknown fields. Only a 1-64 character JSON
+  string already in `[A-Za-z0-9_.-]` establishes identity. Every accepted
+  ASCII byte is reversibly encoded as lowercase hex below a `~sid-` prefix;
+  this is injective on case-insensitive filesystems, avoids Windows reserved
+  basenames, and cannot overlap legacy raw/sanitized marker names. Lossy
+  filename replacement is prohibited. Container depth is limited to
+  128, property names to 256 Unicode scalars, number tokens to 1,024
+  characters, and property values plus array elements to 4,096. Malformed,
+  ambiguous, or over-budget stdin and missing, empty, non-string, unsafe, or
+  oversized session values are unjudgeable: SessionStart creates/prunes no marker
+  state and emits only a fixed non-reflective identity warning, while
+  nudge/Stop allow silently. Unique unknown fields remain ignored. For
+  unjudgeable cases, raw stdin, session values, and secret-like values are
+  never reflected in output, stderr, or marker names. The pipe tests cover the
+  structural, name, multiplicity, type, no-side-effect, portable-key, and filename gates.
+  Marker reads accept only a stable canonical 1-18 byte decimal value. Bash
+  checks size before and after a maximum-19-byte read; PowerShell opens a
+  `FileStream`, checks its length, and reads exactly that bounded length.
+  Routine message text is static apart from interpolated
+  paths derived from the devlog root. The Bash implementation first rejects a
+  non-UTF-8 configured root, parses only validated JSON values, and JSON-escapes quote,
   backslash, and C0 control bytes in paths; it never evaluates input or path
   text as shell code.
 
-**Before installing, read the three entrypoints and their shared helper in
+**Before installing, read the three entrypoints and both shared helpers in
 `hooks/`.** Anything that asks Claude Code to execute a script on every turn
 deserves that scrutiny, including this repository.
 
