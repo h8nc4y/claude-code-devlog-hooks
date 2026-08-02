@@ -2832,9 +2832,13 @@ function Get-WorkflowSteps {
                 Shell = ''
                 Run = ''
                 Uses = ''
+                PersistCredentials = ''
                 ShellCount = 0
                 RunCount = 0
                 UsesCount = 0
+                WithCount = 0
+                InputCount = 0
+                PersistCredentialsCount = 0
             }
             continue
         }
@@ -2861,6 +2865,28 @@ function Get-WorkflowSteps {
         if ($usesMatch.Success) {
             $currentStep.Uses = $usesMatch.Groups['value'].Value.Trim("'`"")
             $currentStep.UsesCount++
+            continue
+        }
+
+        $withMatch = [regex]::Match($line, '^        with:[ \t]*$')
+        if ($withMatch.Success) {
+            $currentStep.WithCount++
+            continue
+        }
+
+        $inputMatch = [regex]::Match(
+            $line,
+            '^          (?<key>[A-Za-z0-9_-]+):[ \t]*(?<value>[^#\r\n]+?)[ \t]*$'
+        )
+        if ($inputMatch.Success) {
+            # action inputを所有stepへ結び付け、別stepやrun literal内の同名文字列で
+            # credential境界を満たしたことにしない。
+            $currentStep.InputCount++
+            if ($inputMatch.Groups['key'].Value -ceq 'persist-credentials') {
+                $currentStep.PersistCredentials =
+                    $inputMatch.Groups['value'].Value.Trim("'`"")
+                $currentStep.PersistCredentialsCount++
+            }
         }
     }
 
@@ -2933,7 +2959,12 @@ function Test-WorkflowJobContract {
             if ($actualStep.UsesCount -ne 1 -or
                 $actualStep.ShellCount -ne 0 -or
                 $actualStep.RunCount -ne 0 -or
-                $actualStep.Uses -cne $expectedStep.Uses) {
+                $actualStep.WithCount -ne 1 -or
+                $actualStep.InputCount -ne 1 -or
+                $actualStep.PersistCredentialsCount -ne 1 -or
+                $actualStep.Uses -cne $expectedStep.Uses -or
+                $actualStep.PersistCredentials -cne
+                    $expectedStep.PersistCredentials) {
                 return $false
             }
             continue
@@ -2942,6 +2973,9 @@ function Test-WorkflowJobContract {
         if ($actualStep.UsesCount -ne 0 -or
             $actualStep.ShellCount -ne 1 -or
             $actualStep.RunCount -ne 1 -or
+            $actualStep.WithCount -ne 0 -or
+            $actualStep.InputCount -ne 0 -or
+            $actualStep.PersistCredentialsCount -ne 0 -or
             $actualStep.Shell -cne $expectedStep.Shell -or
             $actualStep.Run -cne $expectedStep.Run) {
             return $false
@@ -2966,6 +3000,8 @@ function Assert-MacOsWorkflowJobValidatorRegressions {
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       - name: Verify Darwin and system Bash 3.2
         shell: /bin/bash --noprofile --norc -eo pipefail {0}
@@ -3025,6 +3061,38 @@ function Assert-MacOsWorkflowJobValidatorRegressions {
             Source = $validSource.Replace(
                 '    timeout-minutes: 10',
                 '    timeout-minutes: 20'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'checkout-credential-persistence-missing'
+            Expected = $false
+            Source = $validSource.Replace(
+                "        with:`n          persist-credentials: false`n",
+                ''
+            )
+        },
+        [pscustomobject]@{
+            Name = 'checkout-credential-persistence-enabled'
+            Expected = $false
+            Source = $validSource.Replace(
+                '          persist-credentials: false',
+                '          persist-credentials: true'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'checkout-credential-input-misnested'
+            Expected = $false
+            Source = $validSource.Replace(
+                '          persist-credentials: false',
+                '        persist-credentials: false'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'checkout-credential-run-literal-spoof'
+            Expected = $false
+            Source = $validSource.Replace(
+                "        with:`n          persist-credentials: false",
+                "        run: |`n          persist-credentials: false"
             )
         },
         [pscustomobject]@{
@@ -3123,7 +3191,9 @@ function Assert-WorkflowJobShape {
         [string]$JobName,
         [int]$ExpectedStepCount,
         [int]$ExpectedShellCount,
-        [int]$ExpectedRunCount
+        [int]$ExpectedRunCount,
+        [int]$ExpectedWithCount,
+        [int]$ExpectedInputCount
     )
 
     # expected keyを残したまま `if: false`、continue-on-error、別action等を
@@ -3152,8 +3222,14 @@ function Assert-WorkflowJobShape {
     $usesKeyCount = @(
         $Lines | Where-Object { $_ -match '^        uses:[ \t]*' }
     ).Count
+    $withKeyCount = @(
+        $Lines | Where-Object { $_ -match '^        with:[ \t]*' }
+    ).Count
+    $inputKeyCount = @(
+        $Lines | Where-Object { $_ -match '^          (?![ #\r\n]).+$' }
+    ).Count
     $expectedStepPropertyCount =
-        1 + $ExpectedShellCount + $ExpectedRunCount
+        1 + $ExpectedShellCount + $ExpectedRunCount + $ExpectedWithCount
 
     if ($jobEntryCount -ne 4 -or
         $nameKeyCount -ne 1 -or
@@ -3166,6 +3242,8 @@ function Assert-WorkflowJobShape {
     if ($stepPropertyCount -ne $expectedStepPropertyCount -or
         $shellKeyCount -ne $ExpectedShellCount -or
         $runKeyCount -ne $ExpectedRunCount -or
+        $withKeyCount -ne $ExpectedWithCount -or
+        $inputKeyCount -ne $ExpectedInputCount -or
         $usesKeyCount -ne 1) {
         Add-Failure "Workflow job '$JobName' contains an unexpected, missing, or duplicate step-level key."
     }
@@ -3189,8 +3267,11 @@ function Assert-WorkflowStep {
     $step = $matches[0]
     if ($step.ShellCount -ne 1 -or
         $step.RunCount -ne 1 -or
-        $step.UsesCount -ne 0) {
-        Add-Failure "Workflow job '$JobName' step '$Name' must contain exactly one shell/run and no uses key."
+        $step.UsesCount -ne 0 -or
+        $step.WithCount -ne 0 -or
+        $step.InputCount -ne 0 -or
+        $step.PersistCredentialsCount -ne 0) {
+        Add-Failure "Workflow job '$JobName' step '$Name' must contain exactly one shell/run and no uses/with key."
     }
     if (-not $step.Shell.Equals($Shell, [System.StringComparison]::OrdinalIgnoreCase)) {
         Add-Failure "Workflow job '$JobName' step '$Name' must use shell '$Shell' (found '$($step.Shell)')."
@@ -3205,7 +3286,8 @@ function Assert-WorkflowUsesStep {
         [object[]]$Steps,
         [string]$JobName,
         [string]$Name,
-        [string]$Uses
+        [string]$Uses,
+        [string]$PersistCredentials
     )
 
     $matches = @($Steps | Where-Object { $_.Name -ceq $Name })
@@ -3217,11 +3299,17 @@ function Assert-WorkflowUsesStep {
     $step = $matches[0]
     if ($step.UsesCount -ne 1 -or
         $step.ShellCount -ne 0 -or
-        $step.RunCount -ne 0) {
-        Add-Failure "Workflow job '$JobName' step '$Name' must contain exactly one uses key and no shell/run key."
+        $step.RunCount -ne 0 -or
+        $step.WithCount -ne 1 -or
+        $step.InputCount -ne 1 -or
+        $step.PersistCredentialsCount -ne 1) {
+        Add-Failure "Workflow job '$JobName' step '$Name' must contain exactly one uses/with/persist-credentials key and no shell/run key."
     }
     if ($step.Uses -cne $Uses) {
         Add-Failure "Workflow job '$JobName' step '$Name' must use '$Uses' (found '$($step.Uses)')."
+    }
+    if ($step.PersistCredentials -cne $PersistCredentials) {
+        Add-Failure "Workflow job '$JobName' step '$Name' must set persist-credentials to '$PersistCredentials' (found '$($step.PersistCredentials)')."
     }
 }
 
@@ -3598,9 +3686,11 @@ Assert-WorkflowJobValue -Lines $windowsJobLines -JobName $windowsJobName `
 Assert-WorkflowStepCount -Steps $windowsSteps -JobName $windowsJobName `
     -ExpectedCount 11
 Assert-WorkflowJobShape -Lines $windowsJobLines -JobName $windowsJobName `
-    -ExpectedStepCount 11 -ExpectedShellCount 10 -ExpectedRunCount 10
+    -ExpectedStepCount 11 -ExpectedShellCount 10 -ExpectedRunCount 10 `
+    -ExpectedWithCount 1 -ExpectedInputCount 1
 Assert-WorkflowUsesStep -Steps $windowsSteps -JobName $windowsJobName `
-    -Name 'Check out repository' -Uses $checkoutRevision
+    -Name 'Check out repository' -Uses $checkoutRevision `
+    -PersistCredentials 'false'
 Assert-WorkflowStep -Steps $windowsSteps -JobName $windowsJobName `
     -Name 'Validate OSS readiness' -Shell 'pwsh' `
     -Run './scripts/validate-oss-readiness.ps1'
@@ -3646,9 +3736,11 @@ Assert-WorkflowJobValue -Lines $ubuntuJobLines -JobName $ubuntuJobName `
 Assert-WorkflowStepCount -Steps $ubuntuSteps -JobName $ubuntuJobName `
     -ExpectedCount 9
 Assert-WorkflowJobShape -Lines $ubuntuJobLines -JobName $ubuntuJobName `
-    -ExpectedStepCount 9 -ExpectedShellCount 8 -ExpectedRunCount 8
+    -ExpectedStepCount 9 -ExpectedShellCount 8 -ExpectedRunCount 8 `
+    -ExpectedWithCount 1 -ExpectedInputCount 1
 Assert-WorkflowUsesStep -Steps $ubuntuSteps -JobName $ubuntuJobName `
-    -Name 'Check out repository' -Uses $checkoutRevision
+    -Name 'Check out repository' -Uses $checkoutRevision `
+    -PersistCredentials 'false'
 Assert-WorkflowStep -Steps $ubuntuSteps -JobName $ubuntuJobName `
     -Name 'Validate OSS readiness on Ubuntu' -Shell 'pwsh' `
     -Run './scripts/validate-oss-readiness.ps1'
@@ -3681,6 +3773,7 @@ $macOsExpectedSteps = @(
         Shell = ''
         Run = ''
         Uses = $checkoutRevision
+        PersistCredentials = 'false'
     },
     [pscustomobject]@{
         Name = 'Verify Darwin and system Bash 3.2'
@@ -3743,9 +3836,11 @@ Assert-WorkflowJobValue -Lines $macOsJobLines -JobName $macOsJobName `
 Assert-WorkflowStepCount -Steps $macOsSteps -JobName $macOsJobName `
     -ExpectedCount 7
 Assert-WorkflowJobShape -Lines $macOsJobLines -JobName $macOsJobName `
-    -ExpectedStepCount 7 -ExpectedShellCount 6 -ExpectedRunCount 6
+    -ExpectedStepCount 7 -ExpectedShellCount 6 -ExpectedRunCount 6 `
+    -ExpectedWithCount 1 -ExpectedInputCount 1
 Assert-WorkflowUsesStep -Steps $macOsSteps -JobName $macOsJobName `
-    -Name 'Check out repository' -Uses $checkoutRevision
+    -Name 'Check out repository' -Uses $checkoutRevision `
+    -PersistCredentials 'false'
 Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
     -Name 'Verify Darwin and system Bash 3.2' `
     -Shell '/bin/bash --noprofile --norc -eo pipefail {0}' `

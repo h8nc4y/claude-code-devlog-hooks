@@ -86,6 +86,9 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Disabled checkout credential persistence in all three CI jobs and extended
+  the exact workflow validator to reject a missing, enabled, misindented, or
+  run-literal-spoofed `persist-credentials: false` boundary.
 - Bounded parser work independently from raw byte size: container depth 128,
   property names 256 Unicode scalars, number tokens 1,024 characters, and
   values 4,096. Bash ordinary-string and number validation is linear, and the

@@ -1,6 +1,6 @@
 # Handoff
 
-更新日: 2026-08-01 (JST)
+更新日: 2026-08-02 (JST)
 
 ## Canonical scope
 
@@ -46,6 +46,13 @@
 - 同日、PowerShell 7/5.1 AST、Git Bash/WSL Bashの全shell構文、Claude strict plugin
   validate、plugin contract、launcher 13件、readiness、private-marker self-test/実scan、
   Gitleaks worktree/history、Semgrep local rulesが成功した。
+- 2026-08-02に3 OS jobの全checkoutへ`persist-credentials: false`を追加した。
+  exact workflow validatorは`with`を所有checkoutへ結び付け、設定欠落、`true`、
+  misindent、run literal偽装を拒否する。これはcheckout credentialのlocal Git config
+  保存だけを無効化し、repository権限は`contents: read`のまま変更していない。
+- 同変更のlocal検証ではPowerShell 7/5.1 readiness、Claude strict plugin validate、
+  plugin contract、launcher 13件、PowerShell 7/5.1 hook各65件、private-marker
+  self-testとtracked scanが成功した。外部CIは変更PRで再確認する。
 - GitHub evidence: implementation commit `9fe8815` のPR run `30665994905`、
   reviewed head `1dd72f3` のPR run `30666868765`、squash-merge integration commit
   `e728f9d` の
@@ -95,6 +102,7 @@
 
 ## Next step
 
-PR #18のintegration、post-main確認、task branch / worktree cleanupは完了。
-新しいscopeは未選定。観測された回帰または具体的な利用者taskが生じた時点で、
+checkout credential非永続化の実装とlocal cross-runtime検証は完了。
+変更PRのWindows / Ubuntu / macOS CIとpost-mainを確認後、task branchをcleanupする。
+その後の新しいscopeは未選定。観測された回帰または具体的な利用者taskが生じた時点で、
 既存のcross-runtime契約を保った最小変更を選び、上記gateを再実行する。
