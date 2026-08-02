@@ -56,6 +56,45 @@
   integration commit `d76b4e1`のpost-main run `30733118960`は、いずれも
   Windows / Ubuntu / macOSの3 jobが成功した。reviewed head `995f132`と
   integration commitは同一treeで、task branchもlocal / remoteからcleanup済み。
+- 2026-08-02の新しいClass M work unitでは、3つのcheckoutを公式v7.0.1の
+  verified full commit SHAへ更新する。baseline main、origin、live mainは
+  `c6e7af25a07ede43f1af92b55bee54aa7c2e1976`で一致し、open PR / issueは0、
+  exact-main run `30733818380`はWindows / Ubuntu / macOSの3 jobが成功した。
+- 同baselineではstrict plugin validation、PowerShell 7/5.1 readinessとplugin、
+  launcher 13件、PowerShell 7/5.1/WSL Bash/Git Bash hook各65件、scanner
+  self-test両host、tracked scanが成功した。validator-first TDDでは旧workflowを
+  両PowerShellが計7 diagnosticsで拒否し、3 pin更新後は両方GREENへ戻った。
+- Final candidateでもstrict plugin validation、PowerShell 7/5.1 readinessとplugin、
+  launcher 13件、WSL / Git Bash syntax、PowerShell 7/5.1/WSL Bash/Git Bash hook各65件、
+  scanner self-test両host、tracked scanが成功した。Gitleaksはleak 0、Semgrepは
+  82 rules / 5 filesでfinding 0、encoding / whitespace checksも成功した。
+- 独立reviewで、SHA直後の`#`がcommentとして分離されずaction refへ混入する
+  非canonical行の誤受理をP2として検出した。no-separator mutationで両PowerShellの
+  REDを再現し、comment前に1文字以上の空白を要求して両方GREENへ修復した。
+  修正後の独立再review 2系統はP0〜P3すべて0。feature commit `cd0ec87`をpushし、
+  PR #22を作成した。
+- PR #22 run `30743820276`のattempt 1ではmacOSが成功した一方、変更していない
+  private-marker self-testがWindowsの1秒artifact競争とUbuntuの250ms stream-drain
+  境界で失敗した。失敗jobだけのattempt 2ではWindowsが成功したが、Ubuntuが別の
+  near-limit fixtureで再失敗したため、一過性として追加再実行しなかった。
+- production process境界は変えず、self-test launcherだけに2秒のstream-drain猶予を
+  設けた。Windows fixtureはchild自身の固定sleep後artifactではなく、bounded invocation
+  返却後のchild process消失をPIDと開始時刻の組で直接検証する。独立reviewで、PID不在と
+  process照会失敗を区別しないfail-openをP2として検出したため、`ArgumentException`だけを
+  不在とし、同一instanceのstable handle待機、失敗時のbounded回収、全経路のhandle破棄へ
+  修復した。修正後のscanner self-testはPowerShell 7で224.8秒、Windows PowerShell 5.1で
+  141.2秒、ともに成功し、独立再review 2系統はP0〜P3すべて0。repair staged
+  Gitleaksはleak 0、Semgrep `p/security-audit`はPR全6対象に実行された
+  2 rulesでfinding 0だった。repair commit `7ee0b3f`をpushした。
+- repair head run `30745635559`ではmacOS、Ubuntu、Windows PowerShell 7 scannerが
+  成功した一方、Windows PowerShell 5.1がchild終了直後の`StartTime` / `WaitForExit`
+  観測raceを固定診断で拒否した。追加rerunはせず、1秒の共有予算内でfresh processを
+  再probeするtri-stateへ修復した。PID不在または開始時刻不一致だけを消失とし、
+  同一instance残存だけを回収、観測不能は固定診断でfail closedにする。
+- tri-state修正後のscanner self-testはWindows PowerShell 5.1で137.1秒、PowerShell 7で
+  207秒、ともに成功した。PowerShell 7 / 5.1 readiness、tracked scan、staged
+  Gitleaks、Semgrep `p/security-audit`も成功し、code diffの独立review 2系統は
+  P0〜P3すべて0だった。次repair headのPR / main CIは未確認。
 - GitHub evidence: implementation commit `9fe8815` のPR run `30665994905`、
   reviewed head `1dd72f3` のPR run `30666868765`、squash-merge integration commit
   `e728f9d` の
@@ -105,8 +144,11 @@
 
 ## Next step
 
-checkout credential非永続化はPR #20でmainへ統合済み。local cross-runtime検証、
-Windows / Ubuntu / macOSのPR / post-main CI、reviewed-head / integration-tree同一性、
-task branch cleanupまで完了した。新しいscopeは未選定。観測された回帰または
-具体的な利用者taskが生じた時点で、
-既存のcross-runtime契約を保った最小変更を選び、上記gateを再実行する。
+checkout v7.0.1更新をClass Mとして実行中。version commentを保持するparser契約、
+mutable / legacy / stale-comment mutation、3つのfull-SHA pinを実装し、
+PowerShell 7 / 5.1 readinessのRED / GREENとfull local runtime/scanner gateを確認した。
+PR #22のhosted CIで顕在化したself-test timing境界を修復したため、全local gate、
+security scan、独立reviewまで再確認した。repair headのPS5 exit-observation raceを
+tri-state re-probeへ修復し、local gate、security scan、code diff reviewを再確認した。
+final staged review、repair commit / push、PR / post-mainの3 OS job、integration evidence、
+cleanupを続ける。

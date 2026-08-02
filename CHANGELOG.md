@@ -86,6 +86,19 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Upgrade all three canonical `actions/checkout` pins from v5.1.0 to v7.0.1
+  at the verified official full commit SHA. The executable workflow contract
+  also rejects a mutable `@v7` ref, the legacy v5.1.0 pin, and a stale version
+  comment while preserving read-only permissions and
+  `persist-credentials: false`.
+- Stabilized the hosted private-marker self-test without changing production
+  process limits: scanner child invocations receive a self-test-only two-second
+  stream-drain allowance, and the Windows immediate-child fixture verifies
+  bounded removal with a PID/start-time identity and one shared fresh-probe
+  budget instead of racing a one-second child artifact. Normal process-exit
+  observation races are re-probed, while unknown states fail closed and only a
+  verified same instance is cleaned up. Near-limit failures also report fixed
+  process-boundary state flags.
 - Disabled checkout credential persistence in all three CI jobs and extended
   the exact workflow validator to reject a missing, enabled, misindented, or
   run-literal-spoofed `persist-credentials: false` boundary.

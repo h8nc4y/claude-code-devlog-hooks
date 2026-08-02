@@ -2335,13 +2335,16 @@ function Invoke-Scanner {
     }
     $arguments += @('-File', $ScannerPath, '-Path', $ScanPath)
     $arguments += $AdditionalArguments
+    # hosted runnerでは正常終了後の非同期pipe drainが250msを越えることがある。
+    # production helperの既定値は変えず、scannerを包むself-test境界だけを緩和する。
     $result = Invoke-PrivateMarkerProcess `
         -FileName $currentPowerShellExecutable `
         -Arguments $arguments `
         -WorkingDirectory $root `
         -EnvironmentOverrides $EnvironmentOverrides `
         -MaximumStandardOutputBytes 4194304 `
-        -TimeoutMilliseconds 30000
+        -TimeoutMilliseconds 30000 `
+        -StreamCompletionWaitMilliseconds 2000
     return ConvertTo-TestProcessResult -Result $result
 }
 
@@ -4105,6 +4108,7 @@ public static class SyntheticGitProgram
         $immediateSpawnerSource = @'
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -4117,15 +4121,21 @@ public static class ImmediateSpawnerProgram
         if (args.Length == 1 &&
             String.Equals(args[0], "--child", StringComparison.Ordinal))
         {
+            // PIDを先に公開し、親側は固定sleepではなくprocess tableの消失を測る。
+            string childProcessIdentity;
+            using (var currentProcess = Process.GetCurrentProcess())
+            {
+                childProcessIdentity = String.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}:{1}",
+                    currentProcess.Id,
+                    currentProcess.StartTime.ToUniversalTime().Ticks);
+            }
             File.WriteAllText(
                 Environment.GetEnvironmentVariable("PRIVATE_MARKER_PIPE_STARTED_SENTINEL"),
-                "started",
+                childProcessIdentity,
                 new UTF8Encoding(false));
-            Thread.Sleep(1000);
-            File.WriteAllText(
-                Environment.GetEnvironmentVariable("PRIVATE_MARKER_PIPE_SURVIVED_SENTINEL"),
-                "survived",
-                new UTF8Encoding(false));
+            Thread.Sleep(30000);
             return 0;
         }
 
@@ -4218,21 +4228,15 @@ Add-Type `
         } else {
             # 目的 process が最初の処理で child を起動しても、direct target は
             # suspended 中にJob所属済みなのでkill-on-close境界から逃げられない。
-            $pipeSurvivedSentinels = New-Object System.Collections.Generic.List[string]
             for ($attempt = 1; $attempt -le 10; $attempt++) {
                 $pipeStartedSentinel = Join-Path `
                     $tempRoot `
                     "pipe-grandchild-started-$attempt.txt"
-                $pipeSurvivedSentinel = Join-Path `
-                    $tempRoot `
-                    "pipe-grandchild-survived-$attempt.txt"
-                $pipeSurvivedSentinels.Add($pipeSurvivedSentinel) | Out-Null
                 $pipeResult = Invoke-PrivateMarkerProcess `
                     -FileName $immediateSpawnerPath `
                     -WorkingDirectory $tempRoot `
                     -EnvironmentOverrides @{
                         PRIVATE_MARKER_PIPE_STARTED_SENTINEL = $pipeStartedSentinel
-                        PRIVATE_MARKER_PIPE_SURVIVED_SENTINEL = $pipeSurvivedSentinel
                     } `
                     -TimeoutMilliseconds 10000 `
                     -StreamCompletionWaitMilliseconds 500 `
@@ -4244,15 +4248,137 @@ Add-Type `
                 }
                 if (-not (Test-Path -LiteralPath $pipeStartedSentinel)) {
                     Add-Failure "Expected immediate-spawner attempt $attempt to prove that its child started."
+                    continue
                 }
-            }
 
-            # 全 attempt の child が artifact を書く期限を一度だけ bounded に待つ。
-            Start-Sleep -Milliseconds 1250
-            foreach ($pipeSurvivedSentinel in $pipeSurvivedSentinels) {
-                if (Test-Path -LiteralPath $pipeSurvivedSentinel) {
-                    Add-Failure 'Expected atomic Job assignment to stop every immediate child before artifact creation.'
-                    break
+                $pipeChildIdentity = (
+                    [System.IO.File]::ReadAllText($pipeStartedSentinel)
+                ).Trim()
+                $pipeChildIdentityParts = $pipeChildIdentity.Split(':')
+                $pipeChildPid = 0
+                $pipeChildStartTicks = 0L
+                if ($pipeChildIdentityParts.Count -ne 2 -or
+                    -not [int]::TryParse(
+                        $pipeChildIdentityParts[0],
+                        [ref]$pipeChildPid
+                    ) -or
+                    $pipeChildPid -le 0 -or
+                    -not [long]::TryParse(
+                        $pipeChildIdentityParts[1],
+                        [ref]$pipeChildStartTicks
+                    ) -or
+                    $pipeChildStartTicks -le 0) {
+                    Add-Failure "Expected immediate-spawner attempt $attempt to publish a canonical child process identity."
+                    continue
+                }
+
+                # fresh probeごとにPIDと開始時刻を照合し、終了raceとPID再利用を分離する。
+                # 観測不能は1秒の総予算でだけ再試行し、期限後は固定診断でfail closedにする。
+                $pipeChildObservationClock =
+                    [System.Diagnostics.Stopwatch]::StartNew()
+                $pipeChildObservationBudgetMilliseconds = 1000
+                $pipeChildGone = $false
+                $pipeChildProcess = $null
+                while (-not $pipeChildGone -and
+                    $null -eq $pipeChildProcess -and
+                    $pipeChildObservationClock.ElapsedMilliseconds -lt
+                        $pipeChildObservationBudgetMilliseconds) {
+                    $pipeChildCandidate = $null
+                    try {
+                        try {
+                            $pipeChildCandidate =
+                                [System.Diagnostics.Process]::GetProcessById(
+                                    $pipeChildPid
+                                )
+                        }
+                        catch [System.ArgumentException] {
+                            # fresh lookupのPID不在だけをchild消失の直接証拠にする。
+                            $pipeChildGone = $true
+                            continue
+                        }
+                        catch {
+                            # 一時的なprocess table照会失敗は総予算内で再probeする。
+                            Start-Sleep -Milliseconds 10
+                            continue
+                        }
+
+                        try {
+                            if ($pipeChildCandidate.WaitForExit(0)) {
+                                $pipeChildGone = $true
+                                continue
+                            }
+
+                            $candidateStartTime =
+                                $pipeChildCandidate.StartTime
+                            $candidateStartTicks =
+                                $candidateStartTime.ToUniversalTime().Ticks
+                            if ($candidateStartTicks -ne
+                                $pipeChildStartTicks) {
+                                # 同じPIDの別instanceなら元childは既に終了している。
+                                $pipeChildGone = $true
+                                continue
+                            }
+
+                            $observationElapsedMilliseconds =
+                                [int]$pipeChildObservationClock.ElapsedMilliseconds
+                            $remainingObservationMilliseconds = [Math]::Max(
+                                0,
+                                $pipeChildObservationBudgetMilliseconds -
+                                    $observationElapsedMilliseconds
+                            )
+                            if ($remainingObservationMilliseconds -gt 0 -and
+                                $pipeChildCandidate.WaitForExit(
+                                    $remainingObservationMilliseconds
+                                )) {
+                                $pipeChildGone = $true
+                                continue
+                            }
+
+                            # 同一instanceが総予算後も生存した場合だけcleanup用handleを保持する。
+                            $pipeChildProcess = $pipeChildCandidate
+                            $pipeChildCandidate = $null
+                        }
+                        catch {
+                            # 正常終了とのraceもあり得るため、fresh lookupへ戻って再判定する。
+                            Start-Sleep -Milliseconds 10
+                        }
+                    }
+                    finally {
+                        if ($null -ne $pipeChildCandidate) {
+                            $pipeChildCandidate.Dispose()
+                        }
+                    }
+                }
+                $pipeChildObservationClock.Stop()
+
+                if ($null -ne $pipeChildProcess) {
+                    try {
+                        Add-Failure (
+                            'Expected atomic Job assignment to remove the ' +
+                            "immediate child PID for attempt $attempt before returning."
+                        )
+
+                        # failure pathでも検証済み同一instanceだけを最大1秒で回収する。
+                        $pipeChildCleanupComplete = $false
+                        try {
+                            if (-not $pipeChildProcess.HasExited) {
+                                $pipeChildProcess.Kill()
+                            }
+                            $pipeChildCleanupComplete =
+                                $pipeChildProcess.WaitForExit(1000)
+                        }
+                        catch {
+                            # 例外本文は公開出力へ反射せず、固定cleanup診断だけを返す。
+                        }
+                        if (-not $pipeChildCleanupComplete) {
+                            Add-Failure "Expected immediate-spawner attempt $attempt failure cleanup to terminate the verified child process."
+                        }
+                    }
+                    finally {
+                        $pipeChildProcess.Dispose()
+                    }
+                } elseif (-not $pipeChildGone) {
+                    Add-Failure "Expected immediate-spawner attempt $attempt child process observation to prove exit within the bounded budget."
                 }
             }
         }
@@ -4692,7 +4818,12 @@ Add-Type `
         Add-Failure (
             'Expected a safe near-limit line to pass inside the scanner ' +
             "deadline. Elapsed: " +
-            "$($regexSafeNearLimitClock.ElapsedMilliseconds) ms."
+            "$($regexSafeNearLimitClock.ElapsedMilliseconds) ms; " +
+            "exit: $($regexSafeNearLimitResult.ExitCode); " +
+            "timed out: $($regexSafeNearLimitResult.TimedOut); " +
+            "streams completed: $($regexSafeNearLimitResult.StreamsCompleted); " +
+            "tree stopped: $($regexSafeNearLimitResult.TreeStopped); " +
+            "pipe leak: $($regexSafeNearLimitResult.PipeLeakDetected)."
         )
     }
 
