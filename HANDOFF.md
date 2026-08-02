@@ -52,7 +52,10 @@
   保存だけを無効化し、repository権限は`contents: read`のまま変更していない。
 - 同変更のlocal検証ではPowerShell 7/5.1 readiness、Claude strict plugin validate、
   plugin contract、launcher 13件、PowerShell 7/5.1 hook各65件、private-marker
-  self-testとtracked scanが成功した。外部CIは変更PRで再確認する。
+  self-testとtracked scanが成功した。PR #20 run `30732847840`とsquash-merge
+  integration commit `d76b4e1`のpost-main run `30733118960`は、いずれも
+  Windows / Ubuntu / macOSの3 jobが成功した。reviewed head `995f132`と
+  integration commitは同一treeで、task branchもlocal / remoteからcleanup済み。
 - GitHub evidence: implementation commit `9fe8815` のPR run `30665994905`、
   reviewed head `1dd72f3` のPR run `30666868765`、squash-merge integration commit
   `e728f9d` の
@@ -102,7 +105,8 @@
 
 ## Next step
 
-checkout credential非永続化の実装とlocal cross-runtime検証は完了。
-変更PRのWindows / Ubuntu / macOS CIとpost-mainを確認後、task branchをcleanupする。
-その後の新しいscopeは未選定。観測された回帰または具体的な利用者taskが生じた時点で、
+checkout credential非永続化はPR #20でmainへ統合済み。local cross-runtime検証、
+Windows / Ubuntu / macOSのPR / post-main CI、reviewed-head / integration-tree同一性、
+task branch cleanupまで完了した。新しいscopeは未選定。観測された回帰または
+具体的な利用者taskが生じた時点で、
 既存のcross-runtime契約を保った最小変更を選び、上記gateを再実行する。
