@@ -106,6 +106,20 @@ Public issues must not include:
   customer data.
 - Raw agent transcripts or journal contents that contain any of the above.
 
+## CI Checkout Credentials
+
+Every `actions/checkout` step sets `persist-credentials: false`. This prevents
+checkout from storing its authentication token in the local Git configuration
+for later steps. It does not remove the GitHub Actions token context from the
+runner or broaden the repository-level `contents: read` permission.
+
+The OSS readiness validator binds the `with` mapping to the owning checkout
+step and requires the exact `false` action input value. Its mutation
+regressions reject a missing setting, `true`, a misindented input, and a
+lookalike inside a `run`
+literal. A matching string elsewhere in the workflow cannot satisfy this
+boundary.
+
 ## Scanner Coverage
 
 The private-marker scanner (`scripts/scan-private-markers.ps1`) is a
