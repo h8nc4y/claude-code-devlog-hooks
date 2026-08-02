@@ -86,6 +86,11 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Upgrade all three canonical `actions/checkout` pins from v5.1.0 to v7.0.1
+  at the verified official full commit SHA. The executable workflow contract
+  also rejects a mutable `@v7` ref, the legacy v5.1.0 pin, and a stale version
+  comment while preserving read-only permissions and
+  `persist-credentials: false`.
 - Disabled checkout credential persistence in all three CI jobs and extended
   the exact workflow validator to reject a missing, enabled, misindented, or
   run-literal-spoofed `persist-credentials: false` boundary.

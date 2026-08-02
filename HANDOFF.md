@@ -56,6 +56,22 @@
   integration commit `d76b4e1`のpost-main run `30733118960`は、いずれも
   Windows / Ubuntu / macOSの3 jobが成功した。reviewed head `995f132`と
   integration commitは同一treeで、task branchもlocal / remoteからcleanup済み。
+- 2026-08-02の新しいClass M work unitでは、3つのcheckoutを公式v7.0.1の
+  verified full commit SHAへ更新する。baseline main、origin、live mainは
+  `c6e7af25a07ede43f1af92b55bee54aa7c2e1976`で一致し、open PR / issueは0、
+  exact-main run `30733818380`はWindows / Ubuntu / macOSの3 jobが成功した。
+- 同baselineではstrict plugin validation、PowerShell 7/5.1 readinessとplugin、
+  launcher 13件、PowerShell 7/5.1/WSL Bash/Git Bash hook各65件、scanner
+  self-test両host、tracked scanが成功した。validator-first TDDでは旧workflowを
+  両PowerShellが計7 diagnosticsで拒否し、3 pin更新後は両方GREENへ戻った。
+- Final candidateでもstrict plugin validation、PowerShell 7/5.1 readinessとplugin、
+  launcher 13件、WSL / Git Bash syntax、PowerShell 7/5.1/WSL Bash/Git Bash hook各65件、
+  scanner self-test両host、tracked scanが成功した。Gitleaksはleak 0、Semgrepは
+  82 rules / 5 filesでfinding 0、encoding / whitespace checksも成功した。
+- 独立reviewで、SHA直後の`#`がcommentとして分離されずaction refへ混入する
+  非canonical行の誤受理をP2として検出した。no-separator mutationで両PowerShellの
+  REDを再現し、comment前に1文字以上の空白を要求して両方GREENへ修復した。
+  修正後の独立再review 2系統はP0〜P3すべて0。PR / main CIは未確認。
 - GitHub evidence: implementation commit `9fe8815` のPR run `30665994905`、
   reviewed head `1dd72f3` のPR run `30666868765`、squash-merge integration commit
   `e728f9d` の
@@ -105,8 +121,7 @@
 
 ## Next step
 
-checkout credential非永続化はPR #20でmainへ統合済み。local cross-runtime検証、
-Windows / Ubuntu / macOSのPR / post-main CI、reviewed-head / integration-tree同一性、
-task branch cleanupまで完了した。新しいscopeは未選定。観測された回帰または
-具体的な利用者taskが生じた時点で、
-既存のcross-runtime契約を保った最小変更を選び、上記gateを再実行する。
+checkout v7.0.1更新をClass Mとして実行中。version commentを保持するparser契約、
+mutable / legacy / stale-comment mutation、3つのfull-SHA pinを実装し、
+PowerShell 7 / 5.1 readinessのRED / GREENとfull local runtime/scanner gateを確認した。
+feature commit / PR、PR / post-mainの3 OS job、integration evidence、cleanupを続ける。

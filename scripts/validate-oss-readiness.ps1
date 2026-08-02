@@ -2832,6 +2832,7 @@ function Get-WorkflowSteps {
                 Shell = ''
                 Run = ''
                 Uses = ''
+                UsesComment = ''
                 PersistCredentials = ''
                 ShellCount = 0
                 RunCount = 0
@@ -2861,9 +2862,16 @@ function Get-WorkflowSteps {
             continue
         }
 
-        $usesMatch = [regex]::Match($line, '^        uses:[ \t]*(?<value>[^#\r\n]+?)[ \t]*(?:#.*)?$')
+        $usesMatch = [regex]::Match(
+            $line,
+            '^        uses:[ \t]*(?<value>[^#\r\n]+?)(?:[ \t]+(?<comment>#[^\r\n]*))?[ \t]*$'
+        )
         if ($usesMatch.Success) {
             $currentStep.Uses = $usesMatch.Groups['value'].Value.Trim("'`"")
+            # full SHAと人間向けversion表示を別々に保持し、stale commentを
+            # 正しいpinの偶然一致で見逃さない。
+            $currentStep.UsesComment =
+                $usesMatch.Groups['comment'].Value.Trim()
             $currentStep.UsesCount++
             continue
         }
@@ -2963,6 +2971,7 @@ function Test-WorkflowJobContract {
                 $actualStep.InputCount -ne 1 -or
                 $actualStep.PersistCredentialsCount -ne 1 -or
                 $actualStep.Uses -cne $expectedStep.Uses -or
+                $actualStep.UsesComment -cne $expectedStep.UsesComment -or
                 $actualStep.PersistCredentials -cne
                     $expectedStep.PersistCredentials) {
                 return $false
@@ -2999,7 +3008,7 @@ function Assert-MacOsWorkflowJobValidatorRegressions {
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -3094,6 +3103,32 @@ function Assert-MacOsWorkflowJobValidatorRegressions {
                 "        with:`n          persist-credentials: false",
                 "        run: |`n          persist-credentials: false"
             )
+        },
+        [pscustomobject]@{
+            Name = 'checkout-mutable-v7'
+            Expected = $false
+            Source = $validSource.Replace(
+                'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+                'actions/checkout@v7 # v7.0.1'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'checkout-legacy-v5-1-0'
+            Expected = $false
+            Source = $validSource.Replace(
+                'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+                'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5'
+            )
+        },
+        [pscustomobject]@{
+            Name = 'checkout-stale-version-comment'
+            Expected = $false
+            Source = $validSource.Replace('# v7.0.1', '# v5')
+        },
+        [pscustomobject]@{
+            Name = 'checkout-version-comment-missing-separator'
+            Expected = $false
+            Source = $validSource.Replace(' # v7.0.1', '# v7.0.1')
         },
         [pscustomobject]@{
             Name = 'shell-replaced'
@@ -3287,6 +3322,7 @@ function Assert-WorkflowUsesStep {
         [string]$JobName,
         [string]$Name,
         [string]$Uses,
+        [string]$UsesComment,
         [string]$PersistCredentials
     )
 
@@ -3307,6 +3343,9 @@ function Assert-WorkflowUsesStep {
     }
     if ($step.Uses -cne $Uses) {
         Add-Failure "Workflow job '$JobName' step '$Name' must use '$Uses' (found '$($step.Uses)')."
+    }
+    if ($step.UsesComment -cne $UsesComment) {
+        Add-Failure "Workflow job '$JobName' step '$Name' must use version comment '$UsesComment' (found '$($step.UsesComment)')."
     }
     if ($step.PersistCredentials -cne $PersistCredentials) {
         Add-Failure "Workflow job '$JobName' step '$Name' must set persist-credentials to '$PersistCredentials' (found '$($step.PersistCredentials)')."
@@ -3663,7 +3702,7 @@ Assert-FileContains -RelativePath 'CHANGELOG.md' -Pattern '0\.1\.0' -Description
 # job blockを先に切り出し、timeout/runs-on/checkout/stepを所有job内だけで
 # 検証する。後続jobへ跨ぐregexによる誤合格を許さない。
 $workflowPath = '.github/workflows/validate.yml'
-$checkoutRevision = 'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
+$checkoutRevision = 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
 Assert-WorkflowEnvelopeValidatorRegressions
 Assert-WorkflowEnvelope `
     -RelativePath $workflowPath `
@@ -3690,6 +3729,7 @@ Assert-WorkflowJobShape -Lines $windowsJobLines -JobName $windowsJobName `
     -ExpectedWithCount 1 -ExpectedInputCount 1
 Assert-WorkflowUsesStep -Steps $windowsSteps -JobName $windowsJobName `
     -Name 'Check out repository' -Uses $checkoutRevision `
+    -UsesComment '# v7.0.1' `
     -PersistCredentials 'false'
 Assert-WorkflowStep -Steps $windowsSteps -JobName $windowsJobName `
     -Name 'Validate OSS readiness' -Shell 'pwsh' `
@@ -3740,6 +3780,7 @@ Assert-WorkflowJobShape -Lines $ubuntuJobLines -JobName $ubuntuJobName `
     -ExpectedWithCount 1 -ExpectedInputCount 1
 Assert-WorkflowUsesStep -Steps $ubuntuSteps -JobName $ubuntuJobName `
     -Name 'Check out repository' -Uses $checkoutRevision `
+    -UsesComment '# v7.0.1' `
     -PersistCredentials 'false'
 Assert-WorkflowStep -Steps $ubuntuSteps -JobName $ubuntuJobName `
     -Name 'Validate OSS readiness on Ubuntu' -Shell 'pwsh' `
@@ -3773,6 +3814,7 @@ $macOsExpectedSteps = @(
         Shell = ''
         Run = ''
         Uses = $checkoutRevision
+        UsesComment = '# v7.0.1'
         PersistCredentials = 'false'
     },
     [pscustomobject]@{
@@ -3840,6 +3882,7 @@ Assert-WorkflowJobShape -Lines $macOsJobLines -JobName $macOsJobName `
     -ExpectedWithCount 1 -ExpectedInputCount 1
 Assert-WorkflowUsesStep -Steps $macOsSteps -JobName $macOsJobName `
     -Name 'Check out repository' -Uses $checkoutRevision `
+    -UsesComment '# v7.0.1' `
     -PersistCredentials 'false'
 Assert-WorkflowStep -Steps $macOsSteps -JobName $macOsJobName `
     -Name 'Verify Darwin and system Bash 3.2' `
