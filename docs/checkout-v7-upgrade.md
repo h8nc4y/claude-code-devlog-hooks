@@ -43,24 +43,18 @@
 
 ## Handoff
 
-- **状態:** 実装中。公式provenance、runtime互換性、baseline Git/GitHub/CI、
-  local cross-runtime gate、validator-first RED / workflow GREEN、final plugin / hook /
-  scanner gateは確認済み。独立reviewで見つかったno-separator comment誤受理は
-  mutation RED / regex修正 GREENで解消し、review-fix後のsecurity / hygiene gateと
-  独立再review 2系統も成功した。PR #22の初回hosted runと失敗job 1回再実行では、
-  変更していないscanner self-testのWindows固定sleep競争とUbuntuの250ms pipe drain
-  境界が顕在化した。production process境界は変えず、PID消失の直接検証と
-  self-test-only 2秒drain猶予へ修復した。独立reviewで見つかったprocess照会の
-  fail-openも、PIDと開始時刻で同一instanceを固定し、照会失敗の固定診断、bounded回収、
-  handle破棄を行うよう修復した。local PowerShell 7 / 5.1は再び成功し、
-  修正後の独立再review 2系統もP0〜P3すべて0だった。repair staged Gitleaksは
-  leak 0、Semgrep `p/security-audit`はPR全6対象でfinding 0だった。repair headでは
-  macOS、Ubuntu、Windows PowerShell 7 scannerが成功したが、Windows PowerShell 5.1が
-  正常なchild終了と`StartTime` / `WaitForExit`の観測raceを固定診断で拒否した。
-  追加rerunはせず、1秒の共有予算内でfresh processを再probeし、PID不在か開始時刻不一致
-  だけを消失、同一instance残存を回収対象、観測不能を固定failureとするtri-stateへ修復した。
-  local PowerShell 7 / 5.1のscanner self-test、readiness、tracked scan、Gitleaks、Semgrepは
-  再び成功し、code diffの独立review 2系統もP0〜P3すべて0だった。
+- **状態:** 完了。3つのcheckoutを公式v7.0.1のverified full commit SHAへ更新し、
+  version commentとaction refの所有関係、mutable / legacy pin、stale comment、comment
+  separator欠落をvalidatorでfail closedにした。production scanner境界は維持し、
+  self-testだけのstream-drain猶予とPID＋開始時刻のtri-state観測でhosted runnerの
+  終了競争を安定化した。reviewed feature head
+  `6b2f4d685fe15d5f6400f52af8f066e0a2a29780`ではlocal cross-runtime gate、
+  tracked private-marker scan、Gitleaks、Semgrep、独立review 2系統が成功した。
+  PR #22 run `30746654315`とsquash-merge integration commit
+  `c9f7970d2d77aeb96113e6fd375156248b0bba92`のpost-main run `30746956450`は、
+  いずれもWindows / Ubuntu / macOSの3 jobが成功した。reviewed headとintegration commitは
+  tree `f3261e2d0dc0c84e28df59f6d4c6e29754e57a03`で一致し、feature branchも
+  local / remoteからcleanup済み。
 - **外部境界:** secret、OAuth、実データ、production、deployment、paid operation、
   tag、GitHub Releaseは使用しない。
-- **未確認:** 次repair headのPR CI、main CI。
+- **未確認:** live Claude Code plugin install、実Vault書込み、owner環境のmacOS live session。
