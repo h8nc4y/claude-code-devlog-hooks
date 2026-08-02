@@ -4272,54 +4272,93 @@ Add-Type `
                     continue
                 }
 
-                # stable process handleと開始時刻を使い、PID再利用を別processの生存と誤認しない。
-                # 不在だけを正常終了とし、照会失敗は固定診断でfail closedに扱う。
+                # fresh probeごとにPIDと開始時刻を照合し、終了raceとPID再利用を分離する。
+                # 観測不能は1秒の総予算でだけ再試行し、期限後は固定診断でfail closedにする。
+                $pipeChildObservationClock =
+                    [System.Diagnostics.Stopwatch]::StartNew()
+                $pipeChildObservationBudgetMilliseconds = 1000
                 $pipeChildGone = $false
-                $pipeChildIdentityMatches = $false
                 $pipeChildProcess = $null
-                try {
+                while (-not $pipeChildGone -and
+                    $null -eq $pipeChildProcess -and
+                    $pipeChildObservationClock.ElapsedMilliseconds -lt
+                        $pipeChildObservationBudgetMilliseconds) {
+                    $pipeChildCandidate = $null
                     try {
-                        $pipeChildProcess =
-                            [System.Diagnostics.Process]::GetProcessById(
-                                $pipeChildPid
-                            )
-                    }
-                    catch [System.ArgumentException] {
-                        $pipeChildGone = $true
-                    }
-                    catch {
-                        Add-Failure "Expected immediate-spawner attempt $attempt child process lookup to succeed or prove absence."
-                    }
-
-                    if ($null -ne $pipeChildProcess) {
                         try {
-                            $pipeChildStartTime =
-                                $pipeChildProcess.StartTime
-                            $observedStartTicks =
-                                $pipeChildStartTime.ToUniversalTime().Ticks
-                            if ($observedStartTicks -ne
+                            $pipeChildCandidate =
+                                [System.Diagnostics.Process]::GetProcessById(
+                                    $pipeChildPid
+                                )
+                        }
+                        catch [System.ArgumentException] {
+                            # fresh lookupのPID不在だけをchild消失の直接証拠にする。
+                            $pipeChildGone = $true
+                            continue
+                        }
+                        catch {
+                            # 一時的なprocess table照会失敗は総予算内で再probeする。
+                            Start-Sleep -Milliseconds 10
+                            continue
+                        }
+
+                        try {
+                            if ($pipeChildCandidate.WaitForExit(0)) {
+                                $pipeChildGone = $true
+                                continue
+                            }
+
+                            $candidateStartTime =
+                                $pipeChildCandidate.StartTime
+                            $candidateStartTicks =
+                                $candidateStartTime.ToUniversalTime().Ticks
+                            if ($candidateStartTicks -ne
                                 $pipeChildStartTicks) {
                                 # 同じPIDの別instanceなら元childは既に終了している。
                                 $pipeChildGone = $true
-                            } else {
-                                $pipeChildIdentityMatches = $true
-                                $pipeChildGone =
-                                    $pipeChildProcess.WaitForExit(1000)
+                                continue
                             }
+
+                            $observationElapsedMilliseconds =
+                                [int]$pipeChildObservationClock.ElapsedMilliseconds
+                            $remainingObservationMilliseconds = [Math]::Max(
+                                0,
+                                $pipeChildObservationBudgetMilliseconds -
+                                    $observationElapsedMilliseconds
+                            )
+                            if ($remainingObservationMilliseconds -gt 0 -and
+                                $pipeChildCandidate.WaitForExit(
+                                    $remainingObservationMilliseconds
+                                )) {
+                                $pipeChildGone = $true
+                                continue
+                            }
+
+                            # 同一instanceが総予算後も生存した場合だけcleanup用handleを保持する。
+                            $pipeChildProcess = $pipeChildCandidate
+                            $pipeChildCandidate = $null
                         }
                         catch {
-                            Add-Failure "Expected immediate-spawner attempt $attempt child process identity and exit wait to remain observable."
+                            # 正常終了とのraceもあり得るため、fresh lookupへ戻って再判定する。
+                            Start-Sleep -Milliseconds 10
                         }
                     }
+                    finally {
+                        if ($null -ne $pipeChildCandidate) {
+                            $pipeChildCandidate.Dispose()
+                        }
+                    }
+                }
+                $pipeChildObservationClock.Stop()
 
-                    if ($pipeChildIdentityMatches -and
-                        -not $pipeChildGone) {
+                if ($null -ne $pipeChildProcess) {
+                    try {
                         Add-Failure (
                             'Expected atomic Job assignment to remove the ' +
                             "immediate child PID for attempt $attempt before returning."
                         )
 
-                        # failure pathでもfixture childを最大1秒で回収し、次testへ残さない。
+                        # failure pathでも検証済み同一instanceだけを最大1秒で回収する。
                         $pipeChildCleanupComplete = $false
                         try {
                             if (-not $pipeChildProcess.HasExited) {
@@ -4335,11 +4374,11 @@ Add-Type `
                             Add-Failure "Expected immediate-spawner attempt $attempt failure cleanup to terminate the verified child process."
                         }
                     }
-                }
-                finally {
-                    if ($null -ne $pipeChildProcess) {
+                    finally {
                         $pipeChildProcess.Dispose()
                     }
+                } elseif (-not $pipeChildGone) {
+                    Add-Failure "Expected immediate-spawner attempt $attempt child process observation to prove exit within the bounded budget."
                 }
             }
         }

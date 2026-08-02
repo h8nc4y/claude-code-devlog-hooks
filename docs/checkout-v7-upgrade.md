@@ -54,7 +54,13 @@
   fail-openも、PIDと開始時刻で同一instanceを固定し、照会失敗の固定診断、bounded回収、
   handle破棄を行うよう修復した。local PowerShell 7 / 5.1は再び成功し、
   修正後の独立再review 2系統もP0〜P3すべて0だった。repair staged Gitleaksは
-  leak 0、Semgrep `p/security-audit`はPR全6対象でfinding 0だった。
+  leak 0、Semgrep `p/security-audit`はPR全6対象でfinding 0だった。repair headでは
+  macOS、Ubuntu、Windows PowerShell 7 scannerが成功したが、Windows PowerShell 5.1が
+  正常なchild終了と`StartTime` / `WaitForExit`の観測raceを固定診断で拒否した。
+  追加rerunはせず、1秒の共有予算内でfresh processを再probeし、PID不在か開始時刻不一致
+  だけを消失、同一instance残存を回収対象、観測不能を固定failureとするtri-stateへ修復した。
+  local PowerShell 7 / 5.1のscanner self-test、readiness、tracked scan、Gitleaks、Semgrepは
+  再び成功し、code diffの独立review 2系統もP0〜P3すべて0だった。
 - **外部境界:** secret、OAuth、実データ、production、deployment、paid operation、
   tag、GitHub Releaseは使用しない。
-- **未確認:** 修正headのPR CI、main CI。
+- **未確認:** 次repair headのPR CI、main CI。

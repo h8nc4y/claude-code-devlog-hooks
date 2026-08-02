@@ -85,7 +85,16 @@
   修復した。修正後のscanner self-testはPowerShell 7で224.8秒、Windows PowerShell 5.1で
   141.2秒、ともに成功し、独立再review 2系統はP0〜P3すべて0。repair staged
   Gitleaksはleak 0、Semgrep `p/security-audit`はPR全6対象に実行された
-  2 rulesでfinding 0だった。修正headのPR / main CIは未確認。
+  2 rulesでfinding 0だった。repair commit `7ee0b3f`をpushした。
+- repair head run `30745635559`ではmacOS、Ubuntu、Windows PowerShell 7 scannerが
+  成功した一方、Windows PowerShell 5.1がchild終了直後の`StartTime` / `WaitForExit`
+  観測raceを固定診断で拒否した。追加rerunはせず、1秒の共有予算内でfresh processを
+  再probeするtri-stateへ修復した。PID不在または開始時刻不一致だけを消失とし、
+  同一instance残存だけを回収、観測不能は固定診断でfail closedにする。
+- tri-state修正後のscanner self-testはWindows PowerShell 5.1で137.1秒、PowerShell 7で
+  207秒、ともに成功した。PowerShell 7 / 5.1 readiness、tracked scan、staged
+  Gitleaks、Semgrep `p/security-audit`も成功し、code diffの独立review 2系統は
+  P0〜P3すべて0だった。次repair headのPR / main CIは未確認。
 - GitHub evidence: implementation commit `9fe8815` のPR run `30665994905`、
   reviewed head `1dd72f3` のPR run `30666868765`、squash-merge integration commit
   `e728f9d` の
@@ -139,5 +148,7 @@ checkout v7.0.1更新をClass Mとして実行中。version commentを保持す�
 mutable / legacy / stale-comment mutation、3つのfull-SHA pinを実装し、
 PowerShell 7 / 5.1 readinessのRED / GREENとfull local runtime/scanner gateを確認した。
 PR #22のhosted CIで顕在化したself-test timing境界を修復したため、全local gate、
-security scan、独立reviewまで再確認した。repair commit / push、PR / post-mainの
-3 OS job、integration evidence、cleanupを続ける。
+security scan、独立reviewまで再確認した。repair headのPS5 exit-observation raceを
+tri-state re-probeへ修復し、local gate、security scan、code diff reviewを再確認した。
+final staged review、repair commit / push、PR / post-mainの3 OS job、integration evidence、
+cleanupを続ける。
