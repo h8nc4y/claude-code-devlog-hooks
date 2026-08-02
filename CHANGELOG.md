@@ -91,6 +91,11 @@ The format loosely follows Keep a Changelog conventions.
   also rejects a mutable `@v7` ref, the legacy v5.1.0 pin, and a stale version
   comment while preserving read-only permissions and
   `persist-credentials: false`.
+- Stabilized the hosted private-marker self-test without changing production
+  process limits: scanner child invocations receive a self-test-only two-second
+  stream-drain allowance, and the Windows immediate-child fixture now verifies
+  bounded PID removal directly instead of racing a one-second child artifact.
+  Near-limit failures also report fixed process-boundary state flags.
 - Disabled checkout credential persistence in all three CI jobs and extended
   the exact workflow validator to reject a missing, enabled, misindented, or
   run-literal-spoofed `persist-credentials: false` boundary.

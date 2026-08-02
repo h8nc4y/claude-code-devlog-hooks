@@ -71,7 +71,21 @@
 - 独立reviewで、SHA直後の`#`がcommentとして分離されずaction refへ混入する
   非canonical行の誤受理をP2として検出した。no-separator mutationで両PowerShellの
   REDを再現し、comment前に1文字以上の空白を要求して両方GREENへ修復した。
-  修正後の独立再review 2系統はP0〜P3すべて0。PR / main CIは未確認。
+  修正後の独立再review 2系統はP0〜P3すべて0。feature commit `cd0ec87`をpushし、
+  PR #22を作成した。
+- PR #22 run `30743820276`のattempt 1ではmacOSが成功した一方、変更していない
+  private-marker self-testがWindowsの1秒artifact競争とUbuntuの250ms stream-drain
+  境界で失敗した。失敗jobだけのattempt 2ではWindowsが成功したが、Ubuntuが別の
+  near-limit fixtureで再失敗したため、一過性として追加再実行しなかった。
+- production process境界は変えず、self-test launcherだけに2秒のstream-drain猶予を
+  設けた。Windows fixtureはchild自身の固定sleep後artifactではなく、bounded invocation
+  返却後のchild process消失をPIDと開始時刻の組で直接検証する。独立reviewで、PID不在と
+  process照会失敗を区別しないfail-openをP2として検出したため、`ArgumentException`だけを
+  不在とし、同一instanceのstable handle待機、失敗時のbounded回収、全経路のhandle破棄へ
+  修復した。修正後のscanner self-testはPowerShell 7で224.8秒、Windows PowerShell 5.1で
+  141.2秒、ともに成功し、独立再review 2系統はP0〜P3すべて0。repair staged
+  Gitleaksはleak 0、Semgrep `p/security-audit`はPR全6対象に実行された
+  2 rulesでfinding 0だった。修正headのPR / main CIは未確認。
 - GitHub evidence: implementation commit `9fe8815` のPR run `30665994905`、
   reviewed head `1dd72f3` のPR run `30666868765`、squash-merge integration commit
   `e728f9d` の
@@ -124,4 +138,6 @@
 checkout v7.0.1更新をClass Mとして実行中。version commentを保持するparser契約、
 mutable / legacy / stale-comment mutation、3つのfull-SHA pinを実装し、
 PowerShell 7 / 5.1 readinessのRED / GREENとfull local runtime/scanner gateを確認した。
-feature commit / PR、PR / post-mainの3 OS job、integration evidence、cleanupを続ける。
+PR #22のhosted CIで顕在化したself-test timing境界を修復したため、全local gate、
+security scan、独立reviewまで再確認した。repair commit / push、PR / post-mainの
+3 OS job、integration evidence、cleanupを続ける。
