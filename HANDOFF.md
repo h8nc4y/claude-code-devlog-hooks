@@ -72,18 +72,19 @@
 - 現行契約の可変なPR/run情報はmerge済みPRとActionsを都度再確認する。
 - 最新の独立再レビューは`CLEAR:YES`（P0〜P3すべて0）。Git / GitHub / CIは外部状態のため、
   可変の「最終main」SHAやopen件数をここへ固定せず、次の着手時に必ず再計測する。
-- 2026-08-03にmain / origin/main一致、open PR / issue 0、最新main 3 OS CI成功を再計測した。
-  次のClass Mとして、`.devlog-markers` directory / marker leafのlink・reparse経由で
-  設定root外をwrite / read / pruneするP1を選定し、`fix/reject-linked-marker-state`で着手した。
-- PowerShell 7 baseline 65 / 65は成功。directory linkとhardlinkはPowerShell、directory / leaf
-  symlinkとhardlinkはWSL Bashで合成REDを確認した。fixtureはsuite専用temp内だけを使う。
-- linked childはfinal-entry attributes / `-L`を先に判定し、provider lookupやtarget directory
-  predicateより前にfail-openする。通常・hard-linked markerはlocal nameをunlink後にexclusive
-  createし、別名targetをtruncateしない。read / pruneもlinked directory / leafを拒否する。
-- 最終local gateはPowerShell 7、Windows PowerShell 5.1、WSL Bashが各68 / 68成功。
-  Claude strict plugin、plugin contract、launcher 13件、readiness、PowerShell 7 / 5.1 AST、
-  Bash全6 script構文、private-marker self-test / tracked scan、Gitleaks worktree 1.09 MB / 履歴
-  27 commits、Semgrep 47 tracked filesが成功し、独立review 2系統はP0〜P3すべて0だった。
+- 2026-08-03のClass Mで、`.devlog-markers` directory / marker leafのlink・reparseが設定root外を
+  write / read / pruneできるP1を修正した。linked childはfinal-entry attributes / `-L`を先に判定し、
+  通常・hard-linked markerはlocal nameをunlink後にexclusive createする。合成REDからの最終local
+  gateはPowerShell 7、Windows PowerShell 5.1、WSL Bashが各68 / 68成功した。
+- reviewed feature head `318fd5f3e58cfa85fa9b5cf011ce25a5193223e9`では、Claude strict plugin、
+  plugin contract、launcher 13件、readiness、PowerShell 7 / 5.1 AST、Bash全6 script構文、
+  private-marker self-test / tracked scan、Gitleaks worktree 1.09 MB / 履歴27 commits、Semgrep
+  47 tracked filesが成功し、独立review 2系統はP0〜P3すべて0だった。
+- PR #24 run `30821450036`はWindows / Ubuntu / macOSの3 jobが成功し、squash-merge integration
+  commitは`a3754d9bd6d82b9047bc14c5ba5f1b826f2b3fcc`。reviewed headとintegration commitはtree
+  `f07c49628fa2d121407d4e6bd8e0efd94aec6de5`で一致した。post-main run `30822260475`も3 job
+  成功。main上のreadiness、plugin、launcher 13件、3境界case×3 runtimeも成功し、feature branchは
+  local / remoteからcleanup済み。
 
 ## Success metrics
 
@@ -124,7 +125,7 @@
   assertionが3回失敗した。fixtureはnative junction / native file symlink + junction fallbackへ修正し、
   静的reviewはclearだが、3回上限を守って再実行していないため最終Git Bash reparse実測は未確認。
 - このhostはnative file symlink権限がないため、PowerShell 7 / 5.1はjunction leaf fallbackを実測。
-  actual file symlinkはWSL Bashで実測し、Ubuntu / macOS CIはPRで再確認する。
+  actual file symlinkはWSL Bash、Ubuntu、macOS system Bash 3.2で実測した。
 
 ## Do not re-read
 
@@ -132,6 +133,5 @@
 
 ## Next step
 
-exact stage / global security hookを通してcommit・pushし、PRのWindows / Ubuntu / macOS CIを
-確認する。CIとreviewがgreenならmergeし、post-main gate、HANDOFF closeout、branch cleanupまで
-完了する。Git Bash追加試験は3回上限のため再試行しない。
+次回着手時はGit / GitHub / CI driftとopen PR / issueを再計測し、新しい安全なtaskがあれば選定する。
+明示Git Bashの追加reparse試験は3回上限のresidueとして保持し、同じfailure classを再試行しない。
