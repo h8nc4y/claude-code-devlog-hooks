@@ -223,6 +223,18 @@ The complete architecture and dependency rationale live in
   leading zeroes, and avoid whole-file helpers. Bash checks size before and
   after a maximum-19-byte read; PowerShell opens a `FileStream`, checks its
   length, and reads exactly that bounded length.
+- **Treat the configured root as the trust anchor, not its child state.** The
+  `.devlog-markers` child must be an ordinary directory and marker leaves must
+  be ordinary files. Reject directory junctions/symlinks and leaf
+  reparse/symlink entries before write, read, or prune; do not resolve or
+  reflect their targets.
+- **Replace marker names instead of truncating them.** Remove an existing
+  ordinary marker name, then create its replacement exclusively
+  (`FileMode.CreateNew` or Bash `noclobber`). This leaves another hardlink name
+  unchanged and turns a namespace race into fail-open enforcement instead of
+  an overwrite. Portable PowerShell 5.1/Bash 3.2 checks cannot eliminate a
+  malicious same-user replacement between every check; that concurrent actor
+  is outside the hook threat model documented in `SECURITY.md`.
 
 ## Registration (settings.json)
 

@@ -82,12 +82,12 @@ Configuration cases:
 
 ## Existing behavior matrix
 
-Run the 65 shared cases in `scripts/test-hooks.ps1` against:
+Run the 68 shared cases in `scripts/test-hooks.ps1` against:
 
 - PowerShell 7 (`pwsh`);
 - Windows PowerShell 5.1 (`powershell`);
 - Bash (`bash`), with Ubuntu/macOS running the three extra POSIX-path cases
-  (68 total).
+  (71 total).
 
 This proves that the dispatcher does not substitute for behavior coverage of
 the selected hooks. The fixed case-count guard also prevents a deleted case
@@ -116,5 +116,5 @@ Also run staged Gitleaks and Semgrep through the host security guard. A live
 plugin installation, marketplace publication, and real Vault access remain
 explicitly unverified. PR #18
 [Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
-passed all Windows, Ubuntu, and macOS jobs for the current 65/68-case patch,
+passed all Windows, Ubuntu, and macOS jobs for the then-current 65/68-case patch,
 including system Bash 3.2.57, launcher, readiness, and scanner gates.

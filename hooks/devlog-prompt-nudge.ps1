@@ -70,7 +70,6 @@ try {
     # pruned, or SessionStart never ran) means "cannot judge" - stay silent.
     $markerDir = Join-Path $devlogDir '.devlog-markers'
     $markerPath = Join-Path $markerDir (Get-DevlogMarkerFileName -SessionId $sid)
-    if (-not (Test-Path -LiteralPath $markerPath)) { exit 0 }
     $startEpoch = Read-DevlogMarkerEpoch -Path $markerPath
     if ($null -eq $startEpoch) { exit 0 }
     if (($now - $startEpoch) -lt $ThresholdSec) { exit 0 }   # session too young

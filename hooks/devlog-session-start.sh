@@ -54,14 +54,15 @@ main() {
 
         # Marker failure disarms the later layers, so continue with context but
         # disclose the degraded enforcement in the structured response.
-        if [ "$identity_established" = "1" ] && mkdir -p "$marker_dir" 2>/dev/null &&
-            printf '%s' "$DEVLOG_NOW" >"$marker_path" 2>/dev/null; then
+        if [ "$identity_established" = "1" ] &&
+            devlog_ensure_marker_dir "$marker_dir" &&
+            devlog_write_marker "$marker_dir" "$marker_path" "$DEVLOG_NOW"; then
             enforcement_on=1
         fi
 
-        # Only an established identity may mutate marker state. Pruning then
-        # remains best-effort and must never suppress the useful context.
-        if [ "$identity_established" = "1" ]; then
+        # Prune only after the current write proves that marker state is an
+        # ordinary local namespace. Linked state must remain untouched.
+        if [ "$enforcement_on" = "1" ]; then
             devlog_prune_markers "$marker_dir" "$DEVLOG_NOW" "$MARKER_RETENTION_DAYS" || :
         fi
     fi

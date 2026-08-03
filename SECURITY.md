@@ -19,13 +19,18 @@ What the hooks do — and everything they do:
   It does not interpolate configuration into command text, dump the
   environment, or print hook stdin.
 - **Filesystem reads**: the hook source/helper, stdin JSON provided by Claude
-  Code, session marker files, and the mtime of today's journal file. Runtime
-  state stays under the configured devlog root (`CLAUDE_DEVLOG_DIR`).
+  Code, session marker files, and the mtime of today's journal file. A child
+  `.devlog-markers` directory or marker leaf that is a symlink/reparse point is
+  unjudgeable and is not used for enforcement. Runtime state stays under the
+  configured devlog root (`CLAUDE_DEVLOG_DIR`).
 - **Filesystem writes**: after SessionStart establishes a 1-64 character
   marker-safe session identity, encoded marker files under `<devlog root>/.devlog-markers/` (plus
   creating that directory and the devlog root on first run). Unjudgeable
-  identity input creates and prunes no marker state. The hooks never write
-  journal content and never touch paths outside the devlog root.
+  identity input creates and prunes no marker state. Existing marker entries
+  are never opened in place for writing: a regular or hard-linked entry is
+  unlinked and exclusively recreated, while a symlink/reparse entry is
+  rejected. The hooks never write journal content and never intentionally
+  touch paths outside the devlog root.
 - **Environment**: read `CLAUDE_DEVLOG_DIR` and `CLAUDE_DEVLOG_LANG` only.
 - **Failure direction**: fail-open. Any error allows the session to proceed.
   UserPromptSubmit and Stop fail silently. SessionStart returns its routine
@@ -63,6 +68,17 @@ What the hooks do — and everything they do:
   non-UTF-8 configured root, parses only validated JSON values, and JSON-escapes quote,
   backslash, and C0 control bytes in paths; it never evaluates input or path
   text as shell code.
+
+The configured root itself is the caller-selected trust anchor and may be an
+intentional junction or symlink. Its `.devlog-markers` child and marker leaves
+must be ordinary filesystem entries. The pure PowerShell 5.1 / Bash 3.2
+implementation rechecks those entries around each operation and uses exclusive
+marker creation, but it cannot pin a directory handle against a same-user
+process that concurrently replaces namespace entries between checks. Such a
+process already has the caller's filesystem authority and is outside this
+hook-level threat model. Static links, accidental reparse configuration, and
+hard-linked marker overwrite remain in scope and are covered by synthetic
+regressions.
 
 **Before installing, read the three entrypoints and both shared helpers in
 `hooks/`.** Anything that asks Claude Code to execute a script on every turn

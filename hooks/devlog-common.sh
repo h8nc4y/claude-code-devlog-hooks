@@ -731,11 +731,69 @@ devlog_file_size() {
     return 0
 }
 
+devlog_marker_dir_is_safe() {
+    local marker_dir=$1
+
+    # The configured root is trusted, but its marker child must be a real
+    # directory. Do not resolve or follow a child symbolic link.
+    # Test the final entry itself before any directory predicate that could
+    # follow a symlink target (including an automount or remote filesystem).
+    [ ! -L "$marker_dir" ] && [ -d "$marker_dir" ]
+}
+
+devlog_marker_leaf_is_safe() {
+    local marker_path=$1
+
+    [ ! -L "$marker_path" ] || return 1
+    if [ -e "$marker_path" ]; then
+        [ -f "$marker_path" ] || return 1
+    fi
+    return 0
+}
+
+devlog_ensure_marker_dir() {
+    local marker_dir=$1
+
+    [ ! -L "$marker_dir" ] || return 1
+    if [ ! -e "$marker_dir" ]; then
+        mkdir -p "$marker_dir" 2>/dev/null || return 1
+    fi
+    devlog_marker_dir_is_safe "$marker_dir"
+}
+
+devlog_write_marker() {
+    local marker_dir=$1
+    local marker_path=$2
+    local epoch=$3
+
+    devlog_is_epoch "$epoch" || return 1
+    [ "${#epoch}" -le 18 ] || return 1
+    devlog_marker_dir_is_safe "$marker_dir" || return 1
+    devlog_marker_leaf_is_safe "$marker_path" || return 1
+
+    # Never truncate the existing entry. Unlinking first preserves any other
+    # hard-link name; noclobber exclusive creation rejects a raced symlink.
+    if [ -e "$marker_path" ]; then
+        rm -f "$marker_path" 2>/dev/null || return 1
+    fi
+    devlog_marker_dir_is_safe "$marker_dir" || return 1
+    [ ! -e "$marker_path" ] && [ ! -L "$marker_path" ] || return 1
+    (umask 077; set -C; printf '%s' "$epoch" >"$marker_path") 2>/dev/null || return 1
+
+    devlog_marker_dir_is_safe "$marker_dir" || return 1
+    devlog_marker_leaf_is_safe "$marker_path" || return 1
+    [ -f "$marker_path" ] || return 1
+    return 0
+}
+
 devlog_read_marker() {
     local marker_path=$1
-    local value size_before
+    local marker_dir value size_before
     local LC_ALL=C
 
+    marker_dir=${marker_path%/*}
+    devlog_marker_dir_is_safe "$marker_dir" || return 1
+    devlog_marker_leaf_is_safe "$marker_path" || return 1
     [ -f "$marker_path" ] || return 1
     devlog_file_size "$marker_path" || return 1
     size_before=$DEVLOG_FILE_SIZE
@@ -745,6 +803,8 @@ devlog_read_marker() {
     # around the read. Command substitution strips newlines, so the byte-count
     # equality also rejects newline-terminated marker content.
     value=$(head -c 19 "$marker_path" 2>/dev/null) || return 1
+    devlog_marker_dir_is_safe "$marker_dir" || return 1
+    devlog_marker_leaf_is_safe "$marker_path" || return 1
     devlog_file_size "$marker_path" || return 1
     [ "$DEVLOG_FILE_SIZE" = "$size_before" ] || return 1
     [ "${#value}" -eq "$size_before" ] || return 1
@@ -761,14 +821,18 @@ devlog_prune_markers() {
     local cutoff marker_path
 
     devlog_is_epoch "$now" || return 1
+    devlog_marker_dir_is_safe "$marker_dir" || return 1
     case $retention_days in
         '' | *[!0-9]*) return 1 ;;
     esac
     cutoff=$((now - retention_days * 86400))
 
     for marker_path in "$marker_dir"/*.start; do
+        devlog_marker_dir_is_safe "$marker_dir" || return 1
+        [ ! -L "$marker_path" ] || continue
         [ -f "$marker_path" ] || continue
         if devlog_file_mtime "$marker_path" && [ "$DEVLOG_MTIME" -lt "$cutoff" ]; then
+            [ ! -L "$marker_path" ] || continue
             rm -f "$marker_path" 2>/dev/null || :
         fi
     done

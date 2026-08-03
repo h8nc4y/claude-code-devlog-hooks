@@ -1,6 +1,6 @@
 # Handoff
 
-更新日: 2026-08-02 (JST)
+更新日: 2026-08-03 (JST)
 
 ## Canonical scope
 
@@ -39,7 +39,7 @@
   変更しない。nudge/Stopは同じ入力を無音allowする。
 - `scripts/test-hooks.ps1`はbyte/grammar/root、exact-case、Unicode名、重複/衝突、型、
   helper直接state、side effect不在、raw/session/secret-like sentinel非反射を含む
-  65共有ケースを持つ。POSIX hostではpath escaping 3件を加えた68件になる。
+  68共有ケースを持つ。POSIX hostではpath escaping 3件を加えた71件になる。
 - 2026-08-01のlatest patchでPowerShell 7、Windows PowerShell 5.1、WSL Bash、
   Git Bashが各65/65成功した。filesystem-safe marker key、depth 128 container内scalar、
   timeout kill順、1 MiB/pipe capture capを同じ共有ケースで実測済み。
@@ -72,6 +72,18 @@
 - 現行契約の可変なPR/run情報はmerge済みPRとActionsを都度再確認する。
 - 最新の独立再レビューは`CLEAR:YES`（P0〜P3すべて0）。Git / GitHub / CIは外部状態のため、
   可変の「最終main」SHAやopen件数をここへ固定せず、次の着手時に必ず再計測する。
+- 2026-08-03にmain / origin/main一致、open PR / issue 0、最新main 3 OS CI成功を再計測した。
+  次のClass Mとして、`.devlog-markers` directory / marker leafのlink・reparse経由で
+  設定root外をwrite / read / pruneするP1を選定し、`fix/reject-linked-marker-state`で着手した。
+- PowerShell 7 baseline 65 / 65は成功。directory linkとhardlinkはPowerShell、directory / leaf
+  symlinkとhardlinkはWSL Bashで合成REDを確認した。fixtureはsuite専用temp内だけを使う。
+- linked childはfinal-entry attributes / `-L`を先に判定し、provider lookupやtarget directory
+  predicateより前にfail-openする。通常・hard-linked markerはlocal nameをunlink後にexclusive
+  createし、別名targetをtruncateしない。read / pruneもlinked directory / leafを拒否する。
+- 最終local gateはPowerShell 7、Windows PowerShell 5.1、WSL Bashが各68 / 68成功。
+  Claude strict plugin、plugin contract、launcher 13件、readiness、PowerShell 7 / 5.1 AST、
+  Bash全6 script構文、private-marker self-test / tracked scan、Gitleaks worktree 1.09 MB / 履歴
+  27 commits、Semgrep 47 tracked filesが成功し、独立review 2系統はP0〜P3すべて0だった。
 
 ## Success metrics
 
@@ -79,6 +91,8 @@
 - CIはWindows、Ubuntu、macOSの各契約を有限時間で完了する。
 - public outputへ保護対象を出さない。scanner/readiness境界は固定・非反射診断で
   fail closedし、hook input異常はSessionStartの固定警告または無音allowでfail openする。
+- linked marker stateはSessionStartで固定警告付きfail-open、nudge / Stopで無音allowとし、
+  root外targetのcontent / mtime / treeを変更しない。hardlinkは既存entryを直接truncateしない。
 
 ## Key files
 
@@ -106,6 +120,11 @@
 - live Claude Code plugin install、実Vault書込み、owner環境のmacOS live sessionは未確認。
 - PR #22のreviewed headとpost-mainはGitHub-hosted Windows / Ubuntu / macOS CI成功済み。
   以後の変更ではmacOS 15 / system Bash 3.2を含むActionsを再確認する。
+- 明示Git Bashの追加linked-directory試験は、MSYS2既定deep copyのfixture不備により同じwarning
+  assertionが3回失敗した。fixtureはnative junction / native file symlink + junction fallbackへ修正し、
+  静的reviewはclearだが、3回上限を守って再実行していないため最終Git Bash reparse実測は未確認。
+- このhostはnative file symlink権限がないため、PowerShell 7 / 5.1はjunction leaf fallbackを実測。
+  actual file symlinkはWSL Bashで実測し、Ubuntu / macOS CIはPRで再確認する。
 
 ## Do not re-read
 
@@ -113,6 +132,6 @@
 
 ## Next step
 
-checkout v7.0.1 work unitは完了した。feature PR / post-mainの3 OS job、reviewed headと
-integration treeの一致、feature branch cleanupまで確認済み。新しいscopeは未選定。
-次回はlive main / GitHub / CI driftを再計測してから、安全な最高優先taskを選ぶ。
+exact stage / global security hookを通してcommit・pushし、PRのWindows / Ubuntu / macOS CIを
+確認する。CIとreviewがgreenならmergeし、post-main gate、HANDOFF closeout、branch cleanupまで
+完了する。Git Bash追加試験は3回上限のため再試行しない。

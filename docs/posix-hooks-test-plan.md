@@ -10,11 +10,11 @@ are synthetic throwaway directories selected through `CLAUDE_DEVLOG_DIR`.
 
 | Target | Host | Command | Expected cases |
 | --- | --- | --- | --- |
-| PowerShell hooks | Windows, PowerShell 7 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell pwsh` | 65 shared |
-| PowerShell hooks | Windows, Windows PowerShell 5.1 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell` | 65 shared |
-| Bash hooks | Windows WSL or Git Bash | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 65 shared |
-| Bash hooks | Ubuntu CI | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 65 shared + 3 POSIX-path cases |
-| Bash hooks | macOS 15 CI, system Bash 3.2 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell /bin/bash` | 65 shared + 3 POSIX-path cases |
+| PowerShell hooks | Windows, PowerShell 7 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell pwsh` | 68 shared |
+| PowerShell hooks | Windows, Windows PowerShell 5.1 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell powershell` | 68 shared |
+| Bash hooks | Windows WSL or Git Bash | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 68 shared |
+| Bash hooks | Ubuntu CI | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell bash` | 68 shared + 3 POSIX-path cases |
+| Bash hooks | macOS 15 CI, system Bash 3.2 | `pwsh -NoProfile -File ./scripts/test-hooks.ps1 -HookShell /bin/bash` | 68 shared + 3 POSIX-path cases |
 
 The Windows Bash run translates only synthetic fixture paths. WSL imports
 `CLAUDE_DEVLOG_DIR` and `CLAUDE_DEVLOG_LANG` through a child-only `WSLENV`;
@@ -105,16 +105,24 @@ adapter because their supported runtime is native macOS/Linux.
 - switches to English (the blocking cases also assert the expected daily path
   in the reason).
 
-### Fail-silent And Defensive Regressions (6)
+### Fail-silent And Defensive Regressions (9)
 
 - an unwritable root leaks no stderr and discloses disabled enforcement;
 - a directory occupying the Stop marker path fails open silently;
 - a directory occupying the nudge marker path fails open silently;
+- a linked marker directory cannot receive a new marker, expose an external
+  epoch to nudge/Stop, or prune an external stale marker;
+- symbolic-link marker leaves are neither written/read nor pruned, and a
+  separate safe marker drives the real prune path while the stale link remains
+  present. Ubuntu/macOS run file symlinks; a Windows host without synthetic
+  file-symlink privilege must run a directory-junction leaf fallback instead
+  of reporting a false pass;
+- a hard-linked marker is replaced without changing the other name;
 - string values `"false"` and `"true"` do not activate the boolean loop
   guard; and
 - a nested `stop_hook_active: true` does not activate the top-level guard.
 
-The logical total is 65 cases; multiple assertions within a case verify output
+The logical total is 68 cases; multiple assertions within a case verify output
 shape, language, path, and side effects together.
 
 ## POSIX-only JSON Path Coverage (3)
@@ -161,10 +169,10 @@ substitution of each required job, runner, shell, and step.
 
 ## Acceptance Criteria
 
-- All three shell targets pass the shared 65 cases.
-- Ubuntu passes all 68 cases and Bash syntax validation.
+- All three shell targets pass the shared 68 cases.
+- Ubuntu passes all 71 cases and Bash syntax validation.
 - The standard `macos-15` job proves Darwin plus system `/bin/bash` 3.2, then
-  passes the plugin package, launcher, all 68 Bash-hook cases, and syntax gate
+  passes the plugin package, launcher, all 71 Bash-hook cases, and syntax gate
   within a finite timeout.
 - No hook emits stderr in any behavioral case.
 - UTF-8 output and path JSON round-trips are exact.
@@ -175,7 +183,7 @@ substitution of each required job, runner, shell, and step.
   and the then-current 33 hook cases.
 - Actual macOS live-session behavior remains outside this synthetic CI scope;
   only the synthetic system-Bash execution above is verified.
-- PR #12 predates the current 65/68-case resource-boundary patch. PR #18
+- PR #12 predates the then-current 65/68-case resource-boundary patch. PR #18
   [Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
-  passed the current patch on Windows, Ubuntu Bash 5.2.21, and macOS system
+  passed that patch on Windows, Ubuntu Bash 5.2.21, and macOS system
   Bash 3.2.57; Ubuntu/macOS each completed all 68 cases and the required gates.

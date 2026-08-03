@@ -70,6 +70,11 @@ The Bash and PowerShell variants share these observable invariants:
     most 4,096 property values plus array elements.
 13. The configured devlog root must be valid UTF-8. A non-UTF-8 POSIX
     environment value fails open before output or filesystem mutation.
+14. The configured root is the trust anchor, but its `.devlog-markers` child
+    and marker leaves must not be symbolic links. Linked state makes
+    SessionStart disclose disabled enforcement and makes nudge/Stop allow
+    silently. Existing regular or hard-linked marker entries are unlinked and
+    exclusively recreated so another hard-link name is never truncated.
 
 ## File Architecture
 
@@ -178,6 +183,10 @@ invalid JSON or a path mutation.
 - macOS/BSD mtime: `stat -f %m`.
 - Marker content: canonical decimal ASCII epoch, 1-18 bytes, no newline, and
   no leading zero on a multi-digit value.
+- Marker directory: an ordinary directory, checked before create/write/read/
+  prune. Marker leaves must be ordinary files. Refresh removes the existing
+  entry and uses Bash noclobber mode for exclusive recreation; the brief
+  missing-marker interval follows the existing fail-open contract.
 - Retention: compare each `*.start` file mtime with
   `now - retention_days * 86400`; deletion is best-effort.
 
@@ -194,6 +203,7 @@ decimal digits before Bash arithmetic.
 | Invalid stdin JSON | inject fixed identity warning; no marker state | silent allow | silent allow |
 | Missing/empty/non-string session id | inject fixed identity warning; no marker state | silent allow | silent allow |
 | Root/marker write failure | inject warning; enforcement off | not applicable | not applicable |
+| Linked marker directory/leaf | inject warning; no write or prune | silent allow | silent allow |
 | Missing/corrupt marker | not applicable | silent allow | silent allow |
 | `date`/`stat`/read error | silent allow | silent allow | silent allow |
 | JSON escaping/helper load error | silent allow | silent allow | silent allow |
@@ -205,6 +215,11 @@ decimal digits before Bash arithmetic.
   journal mtime. They never read journal content.
 - Hooks write only the marker directory under the configured devlog root, and
   only after a valid session identity is established.
+- The configured root itself may intentionally be linked. A linked
+  `.devlog-markers` child or marker leaf is rejected. Pure Bash 3.2 cannot pin
+  a directory handle against a same-user concurrent namespace replacement;
+  that actor is outside the hook threat model and the residual is documented
+  in `SECURITY.md`.
 - Identity warnings are fixed strings and never reflect stdin, session ids, or
   secret-like values.
 - Examples and tests use synthetic paths and content.
@@ -222,9 +237,9 @@ verified the then-current revision on macOS 15.7.7 and system Bash 3.2.57. That
 job passed the Darwin/Bash canary, readiness, plugin contract, all-script
 syntax gate, 13 launcher cases, and the then-current 33 hook cases. It is
 historical evidence for the runner and Bash 3.2 path, not verification of the
-current 65/68-case resource-boundary patch. PR #18
+then-current 65/68-case resource-boundary patch. PR #18
 [Actions run 30665994905](https://github.com/h8nc4y/claude-code-devlog-hooks/actions/runs/30665994905)
-then verified the current patch on Ubuntu Bash 5.2.21 and macOS system Bash
+then verified that patch on Ubuntu Bash 5.2.21 and macOS system Bash
 3.2.57. Ubuntu passed all 68 cases plus readiness, plugin, launcher, syntax,
 and private-marker scanner gates. macOS passed all 68 cases plus readiness,
 plugin, launcher, and syntax gates; that job does not run the scanner. Live
