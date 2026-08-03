@@ -526,6 +526,38 @@ function Assert-UnjudgeableSessionStart {
     }
 }
 
+function Assert-DegradedSessionStart {
+    # A filesystem boundary failure keeps the routine but disarms enforcement.
+    # The exact English template may include only the configured marker path;
+    # linked target names remain private and must never be reflected.
+    param(
+        [Parameter(Mandatory = $true)]$Result,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [string[]]$SensitiveNeedles = @()
+    )
+
+    Assert-Condition ($Result.ExitCode -eq 0) "$Label should exit 0 (got $($Result.ExitCode))."
+    Assert-Condition ([string]::IsNullOrWhiteSpace($Result.Stderr)) "$Label should produce no stderr (got: $($Result.Stderr))."
+    $stdoutText = ConvertTo-StrictUtf8Text -Bytes $Result.StdoutBytes
+    $json = ConvertFrom-HookStdout -Bytes $Result.StdoutBytes
+    Assert-Condition ($json.hookSpecificOutput.hookEventName -eq 'SessionStart') "$Label should emit SessionStart context."
+    $dash = [string][char]0x2014
+    $context = [string]$json.hookSpecificOutput.additionalContext
+    $warningPrefix = "$warningSign Could not write the session marker under "
+    $warningSuffix = " $dash the Stop-hook enforcement and staleness nudges are OFF for this session. Check that CLAUDE_DEVLOG_DIR points to a writable directory."
+    $warningOffset = $context.LastIndexOf($warningPrefix, [System.StringComparison]::Ordinal)
+    Assert-Condition ($warningOffset -ge 0 -and $context.EndsWith($warningSuffix, [System.StringComparison]::Ordinal)) "$Label should end with the exact fixed marker warning template."
+    $pathOffset = $warningOffset + $warningPrefix.Length
+    $pathLength = $context.Length - $warningSuffix.Length - $pathOffset
+    Assert-Condition ($pathLength -gt 0) "$Label should include a non-empty configured marker path."
+    $reportedPath = $context.Substring($pathOffset, $pathLength)
+    Assert-Condition ($reportedPath.IndexOfAny([char[]]@([char]0x0A, [char]0x0D)) -lt 0) "$Label should keep the configured marker path on one line."
+    foreach ($needle in $SensitiveNeedles) {
+        Assert-Condition ($stdoutText.IndexOf($needle, [System.StringComparison]::Ordinal) -lt 0) "$Label must not reflect a linked target sentinel to stdout."
+        Assert-Condition ($Result.Stderr.IndexOf($needle, [System.StringComparison]::Ordinal) -lt 0) "$Label must not reflect a linked target sentinel to stderr."
+    }
+}
+
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claude-code-devlog-hooks-test-' + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
@@ -717,6 +749,115 @@ function Get-MarkerPath {
     )
 
     return (Join-Path (Join-Path $DevlogRoot '.devlog-markers') (Get-MarkerFileName -SessionId $SessionId))
+}
+
+function New-TestDirectoryLink {
+    param(
+        [Parameter(Mandatory = $true)][string]$LinkPath,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    if ($isBashHook -and $env:OS -eq 'Windows_NT') {
+        if ($isWslBash) {
+            # WSL needs a real POSIX symlink in the namespace that runs the
+            # hook. Its legacy wrapper cannot carry the positional arguments.
+            $hookLink = ConvertTo-HookPath -NativePath $LinkPath
+            $hookTarget = ConvertTo-HookPath -NativePath $TargetPath
+            $previousEap = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & wsl.exe -e ln -s -- $hookTarget $hookLink 2>$null
+                if ($LASTEXITCODE -ne 0) { throw 'Could not create the WSL directory-link fixture.' }
+            } finally {
+                $ErrorActionPreference = $previousEap
+            }
+            return
+        }
+
+        # Git Bash defaults to MSYS winsymlinks:deepcopy, where `ln -s` makes
+        # an ordinary copy and falsely exercises no link boundary. Create a
+        # native privilege-free junction and prove the fixture is a reparse
+        # entry before the hook receives it.
+        New-Item -ItemType Junction -Path $LinkPath -Target $TargetPath | Out-Null
+        $attributes = [System.IO.File]::GetAttributes($LinkPath)
+        if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+            [System.IO.Directory]::Delete($LinkPath, $false)
+            throw 'Git Bash directory-link fixture was not a native reparse entry.'
+        }
+        return
+    }
+
+    # Directory junctions avoid the Windows symlink privilege requirement.
+    $itemType = if ($env:OS -eq 'Windows_NT') { 'Junction' } else { 'SymbolicLink' }
+    New-Item -ItemType $itemType -Path $LinkPath -Target $TargetPath | Out-Null
+}
+
+function New-TestFileSymbolicLink {
+    param(
+        [Parameter(Mandatory = $true)][string]$LinkPath,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    if ($isBashHook -and $env:OS -eq 'Windows_NT' -and $isWslBash) {
+        New-TestDirectoryLink -LinkPath $LinkPath -TargetPath $TargetPath
+        return $true
+    }
+
+    try {
+        New-Item -ItemType SymbolicLink -Path $LinkPath -Target $TargetPath | Out-Null
+        return $true
+    } catch {
+        $nativeError = [int]($_.Exception.HResult -band 0xFFFF)
+        if ($env:OS -eq 'Windows_NT' -and $nativeError -in @(5, 1314)) {
+            # The case continues with a privilege-free directory-junction leaf
+            # so a missing file-symlink privilege can never become false PASS.
+            Write-Host 'FALLBACK file symbolic-link fixture: using a directory-junction leaf.'
+            return $false
+        }
+        throw
+    }
+}
+
+function New-TestFileHardLink {
+    param(
+        [Parameter(Mandatory = $true)][string]$LinkPath,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    New-Item -ItemType HardLink -Path $LinkPath -Target $TargetPath | Out-Null
+}
+
+function Remove-TestLink {
+    param([Parameter(Mandatory = $true)][string]$LinkPath)
+
+    if ($isBashHook -and $env:OS -eq 'Windows_NT') {
+        if ($isWslBash) {
+            $hookLink = ConvertTo-HookPath -NativePath $LinkPath
+            $previousEap = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & wsl.exe -e rm -f -- $hookLink 2>$null
+            } finally {
+                $ErrorActionPreference = $previousEap
+            }
+            return
+        }
+
+        # Delete the native reparse entry itself; never ask Git Bash `rm` to
+        # reinterpret or traverse its target.
+        try {
+            $attributes = [System.IO.File]::GetAttributes($LinkPath)
+            if (($attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
+                [System.IO.Directory]::Delete($LinkPath, $false)
+            } else {
+                [System.IO.File]::Delete($LinkPath)
+            }
+        } catch [System.IO.FileNotFoundException] {
+        } catch [System.IO.DirectoryNotFoundException] {
+        }
+        return
+    }
+    Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
 }
 
 function Set-DailyJournal {
@@ -1520,6 +1661,136 @@ Add-Case 'session-start-unwritable-root-warns-silently' {
     Assert-Condition ($json.hookSpecificOutput.additionalContext.Contains($warningSign)) 'Context should disclose that enforcement is off.'
 }
 
+Add-Case 'marker-state-rejects-linked-directory' {
+    # A marker directory link must not redirect writes, reads, or pruning out
+    # of the configured root. The target stays inside the disposable suite.
+    $caseRoot = New-CaseRoot
+    $externalContainer = New-CaseRoot
+    $externalMarkerDir = Join-Path $externalContainer $syntheticPrivateSentinel
+    New-Item -ItemType Directory -Path $externalMarkerDir | Out-Null
+    $linkedMarkerDir = Join-Path $caseRoot '.devlog-markers'
+    $oldExternalMarker = Join-Path $externalMarkerDir 'legacy-stale.start'
+    Set-Content -LiteralPath $oldExternalMarker -Value '1000' -NoNewline -Encoding ascii
+    (Get-Item -LiteralPath $oldExternalMarker).LastWriteTimeUtc = [DateTime]::UtcNow.AddDays(-8)
+    $readExternalMarker = Join-Path $externalMarkerDir (Get-MarkerFileName -SessionId 'linked-read')
+    $readEpoch = "$((Get-NowEpoch) - 2000)"
+    Set-Content -LiteralPath $readExternalMarker -Value $readEpoch -NoNewline -Encoding ascii
+    $oldTicks = (Get-Item -LiteralPath $oldExternalMarker).LastWriteTimeUtc.Ticks
+    $readTicks = (Get-Item -LiteralPath $readExternalMarker).LastWriteTimeUtc.Ticks
+    New-TestDirectoryLink -LinkPath $linkedMarkerDir -TargetPath $externalMarkerDir
+
+    try {
+        $hookEnvironment = @{ CLAUDE_DEVLOG_DIR = $caseRoot; CLAUDE_DEVLOG_LANG = 'en' }
+        $start = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":"linked-write"}' -ChildEnvironment $hookEnvironment
+        Assert-DegradedSessionStart -Result $start -Label 'SessionStart with a linked marker directory' -SensitiveNeedles @($syntheticPrivateSentinel)
+        Assert-Condition (-not (Test-Path -LiteralPath (Join-Path $externalMarkerDir (Get-MarkerFileName -SessionId 'linked-write')))) 'A linked marker directory must not receive a new marker.'
+        Assert-Condition (Test-Path -LiteralPath $oldExternalMarker -PathType Leaf) 'Pruning must not remove an external stale marker through a directory link.'
+        Assert-Condition ((Get-Content -LiteralPath $oldExternalMarker -Raw) -ceq '1000') 'Pruning must not change the external stale marker content.'
+        Assert-Condition ((Get-Item -LiteralPath $oldExternalMarker).LastWriteTimeUtc.Ticks -eq $oldTicks) 'Pruning must not change the external stale marker mtime.'
+        Assert-Condition ((Get-Content -LiteralPath $readExternalMarker -Raw) -ceq $readEpoch) 'Linked marker reads must not change the external marker content.'
+        Assert-Condition ((Get-Item -LiteralPath $readExternalMarker).LastWriteTimeUtc.Ticks -eq $readTicks) 'Linked marker reads must not change the external marker mtime.'
+
+        $nudge = Invoke-Hook -HookPath $hookNudge -StdinText '{"session_id":"linked-read"}' -ChildEnvironment $hookEnvironment
+        Assert-Allowed -Result $nudge -Label 'Nudge with a linked marker directory'
+        $stop = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"linked-read"}' -ChildEnvironment $hookEnvironment
+        Assert-Allowed -Result $stop -Label 'Stop with a linked marker directory'
+    } finally {
+        Remove-TestLink -LinkPath $linkedMarkerDir
+    }
+}
+
+Add-Case 'marker-state-rejects-symbolic-link-leaves' {
+    # Existing and dangling leaf links must never be opened, followed, or
+    # pruned. The fixed warning is intentionally non-reflective.
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    $externalRoot = New-CaseRoot
+    $linkedTargetRoot = Join-Path $externalRoot $syntheticPrivateSentinel
+    New-Item -ItemType Directory -Path $linkedTargetRoot | Out-Null
+    $externalMarker = Join-Path $linkedTargetRoot 'external-marker'
+    $externalEpoch = "$((Get-NowEpoch) - 2000)"
+    Set-Content -LiteralPath $externalMarker -Value $externalEpoch -NoNewline -Encoding ascii
+    (Get-Item -LiteralPath $externalMarker).LastWriteTimeUtc = [DateTime]::UtcNow.AddDays(-8)
+    $markerPath = Get-MarkerPath -DevlogRoot $caseRoot -SessionId 'linked-leaf'
+    $danglingMarkerPath = Get-MarkerPath -DevlogRoot $caseRoot -SessionId 'dangling-leaf'
+    $danglingTarget = Join-Path $linkedTargetRoot 'missing-external-marker'
+    $legacyLink = Join-Path (Join-Path $caseRoot '.devlog-markers') 'legacy-linked.start'
+    $hasFileSymlinks = New-TestFileSymbolicLink -LinkPath $markerPath -TargetPath $externalMarker
+    if ($hasFileSymlinks) {
+        if (-not (New-TestFileSymbolicLink -LinkPath $legacyLink -TargetPath $externalMarker)) {
+            Remove-TestLink -LinkPath $markerPath
+            throw 'File symbolic-link capability changed during fixture setup.'
+        }
+        if (-not (New-TestFileSymbolicLink -LinkPath $danglingMarkerPath -TargetPath $danglingTarget)) {
+            Remove-TestLink -LinkPath $markerPath
+            Remove-TestLink -LinkPath $legacyLink
+            throw 'File symbolic-link capability changed during fixture setup.'
+        }
+    } else {
+        # A directory junction occupying a marker-leaf pathname is still a
+        # required reparse fixture when Windows cannot create file symlinks.
+        New-TestDirectoryLink -LinkPath $markerPath -TargetPath $linkedTargetRoot
+        New-TestDirectoryLink -LinkPath $legacyLink -TargetPath $linkedTargetRoot
+    }
+    $externalTicks = (Get-Item -LiteralPath $externalMarker).LastWriteTimeUtc.Ticks
+
+    try {
+        $hookEnvironment = @{ CLAUDE_DEVLOG_DIR = $caseRoot; CLAUDE_DEVLOG_LANG = 'en' }
+        $start = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":"linked-leaf"}' -ChildEnvironment $hookEnvironment
+        Assert-DegradedSessionStart -Result $start -Label 'SessionStart with a linked marker leaf' -SensitiveNeedles @($syntheticPrivateSentinel)
+        Assert-Condition ((Get-Content -LiteralPath $externalMarker -Raw) -ceq $externalEpoch) 'A marker leaf link must not overwrite its external target.'
+        Assert-Condition ((Get-Item -LiteralPath $externalMarker).LastWriteTimeUtc.Ticks -eq $externalTicks) 'A marker leaf link must not change its external target mtime.'
+        Assert-Condition (Test-Path -LiteralPath $markerPath) 'The rejected marker leaf link must remain in place.'
+        Assert-Condition (Test-Path -LiteralPath $legacyLink) 'Pruning must skip a linked marker leaf.'
+
+        if ($hasFileSymlinks) {
+            $danglingStart = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":"dangling-leaf"}' -ChildEnvironment $hookEnvironment
+            Assert-DegradedSessionStart -Result $danglingStart -Label 'SessionStart with a dangling marker leaf link' -SensitiveNeedles @($syntheticPrivateSentinel)
+            Assert-Condition (-not (Test-Path -LiteralPath $danglingTarget)) 'A dangling marker leaf link must not create its external target.'
+        }
+
+        $nudge = Invoke-Hook -HookPath $hookNudge -StdinText '{"session_id":"linked-leaf"}' -ChildEnvironment $hookEnvironment
+        Assert-Allowed -Result $nudge -Label 'Nudge with a linked marker leaf'
+        $stop = Invoke-Hook -HookPath $hookStop -StdinText '{"session_id":"linked-leaf"}' -ChildEnvironment $hookEnvironment
+        Assert-Allowed -Result $stop -Label 'Stop with a linked marker leaf'
+
+        # A different safe marker enables the real prune path while the stale
+        # linked leaf remains present. The link and target must stay unchanged.
+        $pruneStart = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":"linked-prune-safe"}' -ChildEnvironment $hookEnvironment
+        Assert-Condition ($pruneStart.ExitCode -eq 0) 'SessionStart should enable enforcement for the safe prune marker.'
+        Assert-Condition ([string]::IsNullOrWhiteSpace($pruneStart.Stderr)) 'Safe prune SessionStart should keep stderr empty.'
+        $pruneJson = ConvertFrom-HookStdout -Bytes $pruneStart.StdoutBytes
+        Assert-Condition (-not ([string]$pruneJson.hookSpecificOutput.additionalContext).Contains($warningSign)) 'Safe prune SessionStart should not report degraded enforcement.'
+        Assert-Condition (Test-Path -LiteralPath $legacyLink) 'The real prune path must preserve a linked stale marker leaf.'
+        Assert-Condition ((Get-Content -LiteralPath $externalMarker -Raw) -ceq $externalEpoch) 'Pruning a linked leaf must not change its target content.'
+        Assert-Condition ((Get-Item -LiteralPath $externalMarker).LastWriteTimeUtc.Ticks -eq $externalTicks) 'Pruning a linked leaf must not change its target mtime.'
+    } finally {
+        Remove-TestLink -LinkPath $markerPath
+        Remove-TestLink -LinkPath $legacyLink
+        if ($hasFileSymlinks) { Remove-TestLink -LinkPath $danglingMarkerPath }
+    }
+}
+
+Add-Case 'session-start-replaces-hard-linked-marker-without-target-write' {
+    # A hard link is reported as a regular file. Replacing the directory entry
+    # instead of truncating it protects the other name and its inode content.
+    $caseRoot = New-CaseRoot -WithMarkerDir
+    $externalRoot = New-CaseRoot
+    $externalMarker = Join-Path $externalRoot 'hard-link-target'
+    $externalEpoch = "$((Get-NowEpoch) - 2000)"
+    Set-Content -LiteralPath $externalMarker -Value $externalEpoch -NoNewline -Encoding ascii
+    $markerPath = Get-MarkerPath -DevlogRoot $caseRoot -SessionId 'hard-linked-leaf'
+    New-TestFileHardLink -LinkPath $markerPath -TargetPath $externalMarker
+    $before = Get-NowEpoch
+
+    $start = Invoke-Hook -HookPath $hookSessionStart -StdinText '{"session_id":"hard-linked-leaf"}' -ChildEnvironment @{ CLAUDE_DEVLOG_DIR = $caseRoot }
+    $after = Get-NowEpoch
+    Assert-Condition ($start.ExitCode -eq 0) 'SessionStart with a hard-linked marker should exit 0.'
+    Assert-Condition ([string]::IsNullOrWhiteSpace($start.Stderr)) 'SessionStart with a hard-linked marker should keep stderr empty.'
+    Assert-Condition ((Get-Content -LiteralPath $externalMarker -Raw) -ceq $externalEpoch) 'Replacing a hard-linked marker must not overwrite the other name.'
+    $markerEpoch = [int64](Get-Content -LiteralPath $markerPath -Raw)
+    Assert-Condition ($markerEpoch -ge ($before - 60) -and $markerEpoch -le ($after + 60)) 'The replacement marker should contain the current epoch.'
+}
+
 Add-Case 'stop-allows-on-directory-marker' {
     # A directory occupying the marker path makes the marker read fail; the
     # hook must allow with nothing on stdout OR stderr.
@@ -1632,7 +1903,7 @@ exec bash "$DEVLOG_TEST_REPO_ROOT/hooks/devlog-session-start.sh"
 
 $failures = New-Object System.Collections.Generic.List[string]
 try {
-    $expectedCaseCount = if ($isBashHook -and $env:OS -ne 'Windows_NT') { 68 } else { 65 }
+    $expectedCaseCount = if ($isBashHook -and $env:OS -ne 'Windows_NT') { 71 } else { 68 }
     Assert-Condition ($cases.Count -eq $expectedCaseCount) "Hook suite case count drifted: expected $expectedCaseCount, got $($cases.Count)."
     $selectedCases = New-Object System.Collections.Generic.List[object]
     foreach ($candidateCase in $cases) {

@@ -62,7 +62,7 @@ Every change to `hooks/*.ps1` or `hooks/*.sh` must preserve:
    choose an executable, script path, or additional command argument.
 
 If a change alters observable behavior, add or adjust a case in
-`scripts/test-hooks.ps1` and run it against both implementations. The 65
+`scripts/test-hooks.ps1` and run it against both implementations. The 68
 shared cases must stay equivalent; POSIX-only filesystem cases may be conditional.
 Behavior claims in this repository are backed by pipe tests, not by assertion.
 

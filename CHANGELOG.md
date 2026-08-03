@@ -86,6 +86,15 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Hardened marker state against root escape through linked children. A linked
+  `.devlog-markers` directory or marker leaf now disables enforcement without
+  write, read, or retention-prune traversal. Existing ordinary/hard-linked
+  marker names are unlinked and exclusively recreated, preserving any other
+  hardlink name. Synthetic cross-runtime regressions cover directory links,
+  existing and dangling leaf symlinks, and hardlink-safe refresh. Git Bash
+  directory-link fixtures use native junctions; file-link fixtures use native
+  Windows symlinks with a junction fallback. This avoids MSYS2's
+  environment-dependent `winsymlinks:deepcopy` behavior.
 - Upgrade all three canonical `actions/checkout` pins from v5.1.0 to v7.0.1
   at the verified official full commit SHA. The executable workflow contract
   also rejects a mutable `@v7` ref, the legacy v5.1.0 pin, and a stale version
@@ -127,7 +136,7 @@ The format loosely follows Keep a Changelog conventions.
   with Bash. Bash no longer stores raw stdin in command
   substitution, so NUL cannot disappear before validation. Its non-whitespace
   result framing also preserves valid empty-session parser states. The shared
-  hook suite now covers 65 cross-runtime cases plus three POSIX-path cases.
+  hook suite now covers 68 cross-runtime cases plus three POSIX-path cases.
 - Unified the PowerShell and Bash protocol boundary so only a marker-safe
   1-64 character JSON string `session_id` can establish identity and select
   a marker. Malformed stdin and missing, empty, non-string, unsafe, or oversized ids now create/prune no

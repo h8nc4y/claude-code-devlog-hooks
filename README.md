@@ -311,7 +311,7 @@ requirements, architecture, detailed design, and verification are in
   Git for Windows Bash, and under system Bash 3.2 on GitHub-hosted macOS 15;
   live Claude Code registration remains unverified.
 - Behavior is verified by the shared pipe-test suite
-  (`scripts/test-hooks.ps1`): 65 cross-runtime cases, plus three Bash-only
+  (`scripts/test-hooks.ps1`): 68 cross-runtime cases, plus three Bash-only
   POSIX path/UTF-8 cases on `ubuntu-latest` and `macos-15`. The fixed suite
   count, full-duplex/deadline probes, and 1 MiB-per-pipe capture caps prevent
   silent case loss, pipe deadlock, and unbounded harness output. Exact
@@ -373,6 +373,17 @@ requirements, architecture, detailed design, and verification are in
   legacy raw/sanitized marker names. A session started before the update may
   temporarily have no new marker, so nudge/Stop allow it; retention pruning
   removes old marker files later.
+- **Linked child marker state is rejected**: the configured devlog root is the
+  trust anchor, but its `.devlog-markers` child and marker leaves must be
+  ordinary filesystem entries. A directory junction/symlink or marker-leaf
+  symlink disables enforcement without following the link. Refreshing an
+  ordinary or hard-linked marker first unlinks the local name and then creates
+  a new file exclusively, so another hardlink name is not overwritten.
+- **Same-user namespace replacement remains out of scope**: portable
+  PowerShell 5.1 and Bash 3.2 cannot pin a directory handle across every
+  pathname check. Static linked state and hardlink overwrite are covered, but
+  a concurrent same-user process replacing `.devlog-markers` between checks
+  is outside the hook threat model; see `SECURITY.md`.
 - **Input work is bounded**: stdin is at most 1,048,576 bytes, container depth
   128, property names 256 Unicode scalars, numbers 1,024 characters, and JSON
   values 4,096. A budget violation fails open without protocol side effects.
@@ -447,7 +458,7 @@ PowerShell 5.1 / Bash pipe-test targets, Bash syntax, the scan self-test, the
 private-marker scan, plugin package/launcher tests, and a whitespace check on
 pull requests and pushes to `main`. A finite `macos-15` job additionally proves
 Darwin plus system `/bin/bash` 3.2, then runs readiness, plugin, syntax,
-launcher, and all 68 Bash-hook cases. The strict Claude CLI validator is a
+launcher, and all 71 Bash-hook cases. The strict Claude CLI validator is a
 local release check because CI does not install or authenticate Claude Code.
 
 The scanner self-test retains the PowerShell host that starts it, so the

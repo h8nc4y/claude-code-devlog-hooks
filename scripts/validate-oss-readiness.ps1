@@ -3954,7 +3954,29 @@ Assert-FileNotContains -RelativePath 'hooks/devlog-stop.ps1' -Pattern 'Get-Conte
 Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern "Assert-ParserProbe -StdinText '\{\}' -Expected '0\|\|0'" -Description 'direct empty-object parser state regression'
 Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern "Assert-ParserProbe -StdinText '\{`"session_id`":null,`"stop_hook_active`":true\}' -Expected '0\|\|1'" -Description 'direct null-session Stop-guard parser state regression'
 Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'expectedCaseCount' -Description 'fixed hook-suite case-count guard'
-Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern '\{ 68 \} else \{ 65 \}' -Description 'platform-specific fixed hook-suite case counts'
+Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern '\{ 71 \} else \{ 68 \}' -Description 'platform-specific fixed hook-suite case counts'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'function Test-DevlogMarkerDirectory' -Description 'PowerShell linked marker directory rejection helper'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern 'function Write-DevlogMarkerEpoch' -Description 'PowerShell exclusive marker replacement helper'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern '\[System\.IO\.FileMode\]::CreateNew' -Description 'PowerShell exclusive marker create mode'
+Assert-FileContains -RelativePath 'hooks/devlog-common.ps1' -Pattern '\[System\.IO\.File\]::GetAttributes' -Description 'PowerShell final-entry reparse attribute query'
+Assert-FileNotContains -RelativePath 'hooks/devlog-common.ps1' -Pattern '(?i)\bGet-Item\b' -Description 'provider-based marker namespace lookup'
+Assert-FileContains -RelativePath 'hooks/devlog-common.sh' -Pattern 'devlog_marker_dir_is_safe\(\)' -Description 'Bash linked marker directory rejection helper'
+Assert-FileContains -RelativePath 'hooks/devlog-common.sh' -Pattern 'devlog_write_marker\(\)' -Description 'Bash exclusive marker replacement helper'
+Assert-FileContains -RelativePath 'hooks/devlog-common.sh' -Pattern 'set -C' -Description 'Bash noclobber marker create boundary'
+Assert-FileContains -RelativePath 'hooks/devlog-common.sh' -Pattern '\[ ! -L "\$marker_dir" \] && \[ -d "\$marker_dir" \]' -Description 'Bash no-follow marker directory predicate ordering'
+Assert-FileContains -RelativePath 'hooks/devlog-session-start.ps1' -Pattern 'Initialize-DevlogMarkerDirectory' -Description 'PowerShell SessionStart uses guarded marker directory initialization'
+Assert-FileContains -RelativePath 'hooks/devlog-session-start.ps1' -Pattern 'Write-DevlogMarkerEpoch' -Description 'PowerShell SessionStart uses exclusive marker writer'
+Assert-FileContains -RelativePath 'hooks/devlog-session-start.sh' -Pattern 'devlog_ensure_marker_dir' -Description 'Bash SessionStart uses guarded marker directory initialization'
+Assert-FileContains -RelativePath 'hooks/devlog-session-start.sh' -Pattern 'devlog_write_marker' -Description 'Bash SessionStart uses exclusive marker writer'
+Assert-FileNotContains -RelativePath 'hooks/devlog-prompt-nudge.ps1' -Pattern 'Test-Path -LiteralPath \$markerPath' -Description 'PowerShell nudge marker pre-read provider lookup'
+Assert-FileNotContains -RelativePath 'hooks/devlog-stop.ps1' -Pattern 'Test-Path -LiteralPath \$markerPath' -Description 'PowerShell Stop marker pre-read provider lookup'
+foreach ($linkedMarkerCase in @(
+        'marker-state-rejects-linked-directory',
+        'marker-state-rejects-symbolic-link-leaves',
+        'session-start-replaces-hard-linked-marker-without-target-write'
+    )) {
+    Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern ([regex]::Escape($linkedMarkerCase)) -Description "linked marker boundary regression $linkedMarkerCase"
+}
 Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern '\$candidateCase\.Name -ceq \$CaseName' -Description 'case-sensitive exact hook-case selector'
 Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'No hook case matched -CaseName' -Description 'unmatched hook-case selector failure'
 Assert-FileContains -RelativePath 'scripts/test-hooks.ps1' -Pattern 'New-Object byte\[\] 0' -Description 'explicit empty-stdin byte-array restoration'

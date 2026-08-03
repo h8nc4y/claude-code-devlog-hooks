@@ -65,6 +65,115 @@ function Get-DevlogMarkerFileName {
     return ('~sid-' + $builder.ToString() + '.start')
 }
 
+function Get-DevlogFileSystemState {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    try {
+        # File.GetAttributes maps to a final-entry attribute query on Windows;
+        # unlike provider lookup, it does not enumerate or normalize through a
+        # reparse target before exposing the ReparsePoint flag.
+        return [pscustomobject]@{
+            Exists = $true
+            Error = $false
+            Attributes = [System.IO.File]::GetAttributes($Path)
+        }
+    } catch [System.IO.FileNotFoundException] {
+        return [pscustomobject]@{ Exists = $false; Error = $false; Attributes = 0 }
+    } catch [System.IO.DirectoryNotFoundException] {
+        return [pscustomobject]@{ Exists = $false; Error = $false; Attributes = 0 }
+    } catch {
+        # Access, malformed-path, and other I/O failures are unjudgeable rather
+        # than equivalent to a missing entry that may safely be created.
+        return [pscustomobject]@{ Exists = $false; Error = $true; Attributes = 0 }
+    }
+}
+
+function Test-DevlogMarkerDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # The configured root is the trust anchor, but its marker child must be a
+    # real directory. Resolving a reparse target would cross that boundary.
+    $state = Get-DevlogFileSystemState -Path $Path
+    if ($state.Error -or -not $state.Exists) { return $false }
+    if (($state.Attributes -band [System.IO.FileAttributes]::Directory) -eq 0) { return $false }
+    return (($state.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)
+}
+
+function Test-DevlogMarkerLeaf {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$AllowMissing
+    )
+
+    $state = Get-DevlogFileSystemState -Path $Path
+    if ($state.Error) { return $false }
+    if (-not $state.Exists) { return [bool]$AllowMissing }
+    if (($state.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0) { return $false }
+    return (($state.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)
+}
+
+function Initialize-DevlogMarkerDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    try {
+        $existing = Get-DevlogFileSystemState -Path $Path
+        if ($existing.Error) { return $false }
+        if ($existing.Exists) {
+            return (Test-DevlogMarkerDirectory -Path $Path)
+        }
+        [void][System.IO.Directory]::CreateDirectory($Path)
+        return (Test-DevlogMarkerDirectory -Path $Path)
+    } catch {
+        return $false
+    }
+}
+
+function Write-DevlogMarkerEpoch {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][int64]$Epoch
+    )
+
+    $stream = $null
+    try {
+        $directory = [System.IO.Path]::GetDirectoryName($Path)
+        if ([string]::IsNullOrWhiteSpace($directory) -or
+            -not (Test-DevlogMarkerDirectory -Path $directory)) { return $false }
+
+        # Never truncate an existing entry. Removing the local name first keeps
+        # another hard-link name unchanged; CreateNew refuses a raced symlink.
+        $existing = Get-DevlogFileSystemState -Path $Path
+        if ($existing.Error) { return $false }
+        if ($existing.Exists) {
+            if (-not (Test-DevlogMarkerLeaf -Path $Path)) { return $false }
+            [System.IO.File]::Delete($Path)
+        }
+        if (-not (Test-DevlogMarkerDirectory -Path $directory) -or
+            -not (Test-DevlogMarkerLeaf -Path $Path -AllowMissing)) { return $false }
+
+        $text = $Epoch.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+        if ($text -cnotmatch '\A[1-9][0-9]{0,17}\z') { return $false }
+        $bytes = [System.Text.Encoding]::ASCII.GetBytes($text)
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None
+        )
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        $stream.Dispose()
+        $stream = $null
+
+        return [bool]((Test-DevlogMarkerDirectory -Path $directory) -and
+            (Test-DevlogMarkerLeaf -Path $Path))
+    } catch {
+        return $false
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
 function ConvertFrom-DevlogHookInput {
     param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$RawInput)
 
@@ -447,10 +556,14 @@ function Read-DevlogMarkerEpoch {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     # Marker files are produced as one canonical ASCII epoch without a
-    # newline. Open the file first, then enforce its bounded size so a replaced
-    # or unexpectedly large marker is never copied into process memory.
+    # newline. Reject linked namespace entries before opening, then enforce a
+    # bounded size so an unexpectedly large marker is never copied into memory.
     $stream = $null
     try {
+        $directory = [System.IO.Path]::GetDirectoryName($Path)
+        if ([string]::IsNullOrWhiteSpace($directory) -or
+            -not (Test-DevlogMarkerDirectory -Path $directory) -or
+            -not (Test-DevlogMarkerLeaf -Path $Path)) { return $null }
         $stream = [System.IO.File]::Open(
             $Path,
             [System.IO.FileMode]::Open,
@@ -467,7 +580,9 @@ function Read-DevlogMarkerEpoch {
             if ($read -le 0) { return $null }
             $offset += $read
         }
-        if ($stream.Length -ne $length) { return $null }
+        if ($stream.Length -ne $length -or
+            -not (Test-DevlogMarkerDirectory -Path $directory) -or
+            -not (Test-DevlogMarkerLeaf -Path $Path)) { return $null }
 
         foreach ($byte in $bytes) {
             if ($byte -lt 0x30 -or $byte -gt 0x39) { return $null }

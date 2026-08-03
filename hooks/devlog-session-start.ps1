@@ -79,27 +79,32 @@ try {
         # routine below is still worth injecting, but the user must be told
         # that enforcement is off.
         try {
-            if (-not (Test-Path -LiteralPath $markerDir)) {
-                # -Force creates missing parents, including the devlog root on first run.
-                New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
-            }
             # A reversible hex key keeps exact identities distinct even on
             # Windows case-insensitive filesystems and for reserved basenames.
             $markerName = Get-DevlogMarkerFileName -SessionId $sid
-            Set-Content -LiteralPath (Join-Path $markerDir $markerName) -Value "$now" -NoNewline -Encoding ascii
-            $enforcementOn = $true
+            if ((Initialize-DevlogMarkerDirectory -Path $markerDir) -and
+                (Write-DevlogMarkerEpoch -Path (Join-Path $markerDir $markerName) -Epoch $now)) {
+                $enforcementOn = $true
+            }
         } catch {
             $enforcementOn = $false
         }
 
-        # Pruning is allowed only after identity is established. Otherwise an
-        # identity-free event could mutate unrelated session state.
-        try {
-            $cutoff = (Get-Date).ToUniversalTime().AddDays(-$MarkerRetentionDays)
-            Get-ChildItem -LiteralPath $markerDir -Filter '*.start' -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.LastWriteTimeUtc -lt $cutoff } |
-                Remove-Item -Force -ErrorAction SilentlyContinue
-        } catch { }
+        # Prune only after the current marker proves the namespace safe. Each
+        # leaf is checked again so a reparse entry is never inspected/deleted.
+        if ($enforcementOn) {
+            try {
+                $cutoff = (Get-Date).ToUniversalTime().AddDays(-$MarkerRetentionDays)
+                if (Test-DevlogMarkerDirectory -Path $markerDir) {
+                    Get-ChildItem -LiteralPath $markerDir -Filter '*.start' -File -Force -ErrorAction SilentlyContinue |
+                        Where-Object {
+                            (($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) -and
+                            $_.LastWriteTimeUtc -lt $cutoff
+                        } |
+                        Remove-Item -Force -ErrorAction SilentlyContinue
+                }
+            } catch { }
+        }
     }
 
     $today = Get-Date -Format 'yyyy-MM-dd'
